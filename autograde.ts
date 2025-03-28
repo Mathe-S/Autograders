@@ -418,10 +418,10 @@ async function runAutograder(): Promise<void> {
   console.log("\nGenerating grid layout visualization of student art...");
 
   // Configuration for the grid layout
-  const canvasWidth = 300; // Individual canvas width
-  const canvasHeight = 300; // Individual canvas height
+  const canvasWidth = 400; // Increased individual canvas width
+  const canvasHeight = 400; // Increased individual canvas height
   const padding = 20; // Padding between canvases
-  const studentsPerRow = 3; // Number of students per row
+  const studentsPerRow = 5; // Set to 5 students per row
   const labelHeight = 30; // Height for student ID label
 
   // Calculate the full grid dimensions
@@ -432,11 +432,18 @@ async function runAutograder(): Promise<void> {
 
   // Generate SVG elements for each student
   let svgElements = "";
+  let validStudentIndex = 0; // Separate index for students with valid art
 
-  gradingReport.students.forEach((student, index) => {
-    // Calculate position in the grid
-    const row = Math.floor(index / studentsPerRow);
-    const col = index % studentsPerRow;
+  gradingReport.students.forEach((student) => {
+    // Check for errors in personal art
+    if (student.personalArt.error) {
+      console.log(`Skipping ${student.studentId} due to art generation error.`);
+      return; // Skip this student if there's an error
+    }
+
+    // Calculate position in the grid using validStudentIndex
+    const row = Math.floor(validStudentIndex / studentsPerRow);
+    const col = validStudentIndex % studentsPerRow;
 
     const xOffset = padding + col * (canvasWidth + padding);
     const yOffset = padding + row * (canvasHeight + labelHeight + padding);
@@ -489,22 +496,7 @@ async function runAutograder(): Promise<void> {
       `;
     });
 
-    // Add error message if art generation failed
-    if (student.personalArt.error) {
-      svgElements += `
-        <text 
-          x="${xOffset + canvasWidth / 2}" 
-          y="${yOffset + labelHeight + canvasHeight / 2}" 
-          text-anchor="middle" 
-          dominant-baseline="middle" 
-          font-family="Arial" 
-          font-size="12" 
-          fill="red"
-        >
-          Error generating art
-        </text>
-      `;
-    }
+    validStudentIndex++; // Increment the valid student index
   });
 
   // Create the HTML with SVG grid
