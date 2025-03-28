@@ -1,17 +1,14 @@
 // Import necessary modules
 const fs = require("fs").promises;
 const path = require("path");
-const { parse } = require("csv-parse"); // For parsing CSV data
-
-// Use built-in fetch for Node.js v18+
-// If using older Node.js, uncomment the next line after `npm install node-fetch`
-// const fetch = require('node-fetch');
+const { parse } = require("csv-parse");
 
 // --- Configuration ---
-const CSV_FILE_PATH = "./assignment_submissions.csv"; // Path to your input CSV file
-const SUBMISSIONS_DIR = "Submissions_auto"; // Name of the local output directory
-const FAILED_LOG_FILE = "failed_submissions_log.txt"; // File to log failed attempts
-const DEFAULT_BRANCH = "main"; // Default branch if not specified in the URL
+const CSV_FILE_PATH = "./assignment_submissions.csv";
+const SUBMISSIONS_DIR = "Submissions_auto";
+const FAILED_LOG_FILE = "failed_submissions_log.txt";
+const DEFAULT_BRANCH = "main"; // Primary default branch to try
+const FALLBACK_BRANCH = "master"; // Fallback default branch to try
 
 // Define the two possible structures and their target files
 const STRUCTURE_1_FILES = [
@@ -50,7 +47,7 @@ function sanitizeName(name) {
  *   - https://github.com/user/repo/tree/branchOrSha/...
  *   - https://github.com/user/repo/blob/branchOrSha/...
  * @param {string} githubUrl
- * @returns {object|null} Object with { user, repo, ref } (ref can be branch or SHA) or null.
+ * @returns {object|null} Object with { user, repo, initialRef } (initialRef is from URL or null) or null.
  */
 function parseGitHubUrl(githubUrl) {
   // Clean up potential ".git" suffix and trailing slashes
@@ -73,14 +70,14 @@ function parseGitHubUrl(githubUrl) {
     return null;
   }
 
-  const [, user, repo, ref] = match;
+  const [, user, repo, refFromUrl] = match; // Capture ref specifically from URL
   return {
     user,
     repo,
-    ref: ref || DEFAULT_BRANCH, // Use provided ref (branch/SHA) or default branch
+    // Store the ref found in the URL, or null if none was specified
+    initialRef: refFromUrl || null,
   };
 }
-
 /**
  * Constructs the base URL for fetching raw content using the determined ref.
  * @param {object} repoInfo Object with { user, repo, ref }
@@ -160,23 +157,24 @@ async function downloadAndSaveFile(rawFileUrl, localFilePath) {
 
 /**
  * Processes a single submission entry from the CSV data.
+ * Attempts default branches 'main' and 'master' if no branch is specified.
  * @param {object} submissionData Object containing at least { name, githubUrl, email }
  * @returns {Promise<object>} Summary including original data, status, errors, etc.
  */
 async function processSingleSubmission(submissionData) {
-  const { name, githubUrl, email } = submissionData; // Extract relevant fields
-  const sanitizedFolderName = sanitizeName(email); // Use sanitized name for folder
+  const { name, githubUrl, email } = submissionData;
+  const sanitizedFolderName = sanitizeName(email); // Use sanitized email for folder
 
   console.log(
     `\nProcessing submission: ${name} (Folder: ${sanitizedFolderName}, URL: ${githubUrl})`
   );
 
-  // Return structure includes original data for logging failures
   const result = {
-    ...submissionData, // Keep original name, email, url
+    ...submissionData,
     folderName: sanitizedFolderName,
-    status: "failed", // Default status
+    status: "failed",
     structureUsed: "unknown",
+    refUsed: null, // Keep track of the branch/ref that worked
     files: [],
     error: null,
   };
@@ -194,46 +192,96 @@ async function processSingleSubmission(submissionData) {
     return result;
   }
 
-  const baseRawUrl = buildRawBaseUrl(repoInfo);
-  const submissionBasePath = path.join(SUBMISSIONS_DIR, sanitizedFolderName);
+  // Determine the refs (branches/SHAs) to try
+  const refsToTry = [];
+  if (repoInfo.initialRef) {
+    // If a specific ref (branch/SHA) was in the URL, try only that one first.
+    refsToTry.push(repoInfo.initialRef);
+    console.log(
+      ` -> URL specified ref: ${repoInfo.initialRef}. Trying this first.`
+    );
+  } else {
+    // If no ref in URL, try default branches
+    refsToTry.push(DEFAULT_BRANCH); // e.g., 'main'
+    if (DEFAULT_BRANCH !== FALLBACK_BRANCH) {
+      refsToTry.push(FALLBACK_BRANCH); // e.g., 'master'
+    }
+    console.log(
+      ` -> No ref specified in URL. Will try default branches: [${refsToTry.join(
+        ", "
+      )}]`
+    );
+  }
 
   let targetFiles = null;
+  let successfulRef = null;
 
-  // --- Probe for Structure 2 (PS0/...) first ---
-  const probeUrlStructure2 = baseRawUrl + STRUCTURE_2_FILES[0];
-  console.log(` -> Probing for structure 2: ${probeUrlStructure2}`);
-  if (await checkFileExists(probeUrlStructure2)) {
-    console.log(` -> Structure 2 (PS0/...) detected.`);
-    targetFiles = STRUCTURE_2_FILES;
-    result.structureUsed = "PS0";
-  } else {
+  // Loop through the refs to try (usually 1 or 2)
+  for (const currentRef of refsToTry) {
+    console.log(` -> Attempting probe using ref: '${currentRef}'`);
+    const currentRepoInfo = { ...repoInfo, ref: currentRef }; // Use current ref for this attempt
+    const baseRawUrl = buildRawBaseUrl(currentRepoInfo);
+
+    // --- Probe for Structure 2 (PS0/...) first ---
+    const probeUrlStructure2 = baseRawUrl + STRUCTURE_2_FILES[0];
+    console.log(`    -> Probing Structure 2: ${probeUrlStructure2}`);
+    if (await checkFileExists(probeUrlStructure2)) {
+      console.log(
+        `    -> Structure 2 (PS0/...) detected on ref '${currentRef}'.`
+      );
+      targetFiles = STRUCTURE_2_FILES;
+      result.structureUsed = "PS0";
+      successfulRef = currentRef; // Found it!
+      break; // Exit the loop, we found a working ref and structure
+    }
+
     // --- If Structure 2 not found, try Structure 1 ---
     const probeUrlStructure1 = baseRawUrl + STRUCTURE_1_FILES[0];
     console.log(
-      ` -> Structure 2 not found. Probing for structure 1: ${probeUrlStructure1}`
+      `    -> Structure 2 not found. Probing Structure 1: ${probeUrlStructure1}`
     );
     if (await checkFileExists(probeUrlStructure1)) {
-      console.log(` -> Structure 1 (src/..., test/...) detected.`);
+      console.log(
+        `    -> Structure 1 (src/..., test/...) detected on ref '${currentRef}'.`
+      );
       targetFiles = STRUCTURE_1_FILES;
       result.structureUsed = "standard";
-    } else {
-      const errorMsg = `Could not find starting file for either structure (${STRUCTURE_2_FILES[0]} or ${STRUCTURE_1_FILES[0]}) in repo using ref '${repoInfo.ref}'.`;
-      console.error(` [Error] ${errorMsg}`);
-      result.error = errorMsg;
-      return result; // Return failure early
+      successfulRef = currentRef; // Found it!
+      break; // Exit the loop, we found a working ref and structure
     }
+
+    console.log(` -> Did not find required files using ref '${currentRef}'.`);
+    // If this was the last ref to try, the loop will end.
+  } // End loop through refsToTry
+
+  // --- Check if probing was successful ---
+  if (!successfulRef || !targetFiles) {
+    const errorMsg = `Could not find starting file for either structure on checked refs: [${refsToTry.join(
+      ", "
+    )}]. Please check repository structure and branch names.`;
+    console.error(` [Error] ${errorMsg}`);
+    result.error = errorMsg;
+    return result; // Return failure
   }
 
-  // --- Download the identified files ---
+  // --- Probing successful, proceed with download using the successful ref ---
+  result.refUsed = successfulRef; // Store the ref that worked
+  console.log(` -> Proceeding to download files using ref '${successfulRef}'.`);
+  const finalRepoInfo = { ...repoInfo, ref: successfulRef };
+  const finalBaseRawUrl = buildRawBaseUrl(finalRepoInfo);
+
   let successCount = 0;
   const downloadPromises = targetFiles.map(async (relativeFilePath) => {
-    const rawFileUrl = baseRawUrl + relativeFilePath;
-    const localFilePath = path.join(submissionBasePath, relativeFilePath);
+    const rawFileUrl = finalBaseRawUrl + relativeFilePath; // Use finalBaseRawUrl
+    const localFilePath = path.join(
+      SUBMISSIONS_DIR,
+      sanitizedFolderName, // Use the consistent folder name
+      relativeFilePath
+    );
     const fileResult = await downloadAndSaveFile(rawFileUrl, localFilePath);
     if (fileResult.status === "success") {
       successCount++;
     }
-    // Return detailed file result
     return {
       file: relativeFilePath,
       status: fileResult.status,
@@ -249,23 +297,24 @@ async function processSingleSubmission(submissionData) {
   if (successCount === targetFiles.length) {
     result.status = "success";
     console.log(
-      ` -> Successfully downloaded all ${targetFiles.length} files for ${name}.`
+      ` -> Successfully downloaded all ${targetFiles.length} files for ${name} from ref '${successfulRef}'.`
     );
   } else if (successCount > 0) {
     result.status = "partial";
-    result.error = `Downloaded ${successCount}/${targetFiles.length} files. See file details.`;
+    result.error = `Downloaded ${successCount}/${targetFiles.length} files from ref '${successfulRef}'. See file details.`;
     console.warn(
-      ` [Warning] Partially downloaded files for ${name} (${successCount}/${targetFiles.length}).`
+      ` [Warning] Partially downloaded files for ${name} (${successCount}/${targetFiles.length}) from ref '${successfulRef}'.`
     );
   } else {
-    result.status = "failed"; // Already default
-    // Consolidate file errors if no overall error yet
+    result.status = "failed";
     if (!result.error) {
       const firstFileError =
         result.files.find((f) => f.error)?.error || "Unknown download failure.";
-      result.error = `Failed to download any required files. First error: ${firstFileError}`;
+      result.error = `Failed to download any required files from ref '${successfulRef}'. First error: ${firstFileError}`;
     }
-    console.error(` [Error] Failed to download required files for ${name}.`);
+    console.error(
+      ` [Error] Failed to download required files for ${name} from ref '${successfulRef}'.`
+    );
   }
 
   return result;
@@ -351,23 +400,29 @@ async function downloadAllSubmissionsFromCsv() {
   }
 
   const failedSubmissions = [];
+  const results = []; // Keep track of all results for summary
 
-  // Process submissions sequentially to avoid hitting rate limits too hard (optional: use Promise.all for concurrent)
-  // Using sequential loop (for...of with await) is often safer for APIs
-  const results = [];
+  // Process submissions sequentially
   for (const subInfo of submissionsArray) {
+    let result; // Define result variable outside try block
     try {
-      const result = await processSingleSubmission(subInfo);
+      result = await processSingleSubmission(subInfo); // This now handles ref checking
       results.push(result);
+      // Log failures based on the final status after trying refs
       if (result.status !== "success") {
         failedSubmissions.push({
-          name: result.name, // Original name
+          name: result.name,
           email: result.email,
           githubUrl: result.githubUrl,
           folderName: result.folderName,
           status: result.status,
           reason: result.error || "Unknown failure reason.",
           structureDetected: result.structureUsed,
+          refAttempted:
+            result.refUsed ||
+            (repoInfo
+              ? repoInfo.initialRef || `${DEFAULT_BRANCH}, ${FALLBACK_BRANCH}`
+              : "N/A"), // Show ref used or attempted
           fileDetails: result.files
             .filter((f) => f.status !== "success")
             .map((f) => `  - ${f.file}: ${f.error || "Failed"}`),
@@ -376,21 +431,26 @@ async function downloadAllSubmissionsFromCsv() {
     } catch (err) {
       // Catch unexpected errors during processing of a single submission
       console.error(
-        `[CRITICAL] Unexpected error processing ${subInfo.name}: ${err.message}`
+        `[CRITICAL] Unexpected error processing ${subInfo.name}: ${err.message}\n${err.stack}`
       );
-      results.push({
+      // Create a minimal error result if 'result' wasn't assigned
+      const errorResult = result || {
         ...subInfo,
         status: "error",
         error: `Unexpected processing error: ${err.message}`,
-      });
+        folderName: sanitizeName(subInfo.email),
+      };
+      results.push(errorResult);
+
       failedSubmissions.push({
         name: subInfo.name,
         email: subInfo.email,
         githubUrl: subInfo.githubUrl,
-        folderName: sanitizeName(subInfo.name),
+        folderName: sanitizeName(subInfo.email),
         status: "error",
         reason: `Unexpected processing error: ${err.message}`,
         structureDetected: "unknown",
+        refAttempted: "N/A",
         fileDetails: [],
       });
     }
@@ -411,6 +471,8 @@ async function downloadAllSubmissionsFromCsv() {
       logContent += `   GitHub URL: ${failure.githubUrl}\n`;
       logContent += `   Target Folder: ${failure.folderName}\n`;
       logContent += `   Status: ${failure.status}\n`;
+      // Include the ref used or attempted in the log
+      logContent += `   Ref Used/Attempted: ${failure.refAttempted || "N/A"}\n`;
       logContent += `   Structure Detected: ${failure.structureDetected}\n`;
       logContent += `   Reason: ${failure.reason}\n`;
       if (failure.fileDetails && failure.fileDetails.length > 0) {
@@ -433,10 +495,14 @@ async function downloadAllSubmissionsFromCsv() {
   }
 
   console.log("\n--- Overall Summary ---");
-  const successCount = results.filter((r) => r.status === "success").length;
-  const partialCount = results.filter((r) => r.status === "partial").length;
-  const failedCount = results.filter((r) => r.status === "failed").length;
-  const errorCount = results.filter((r) => r.status === "error").length;
+  const successCount = results.filter(
+    (r) => r && r.status === "success"
+  ).length;
+  const partialCount = results.filter(
+    (r) => r && r.status === "partial"
+  ).length;
+  const failedCount = results.filter((r) => r && r.status === "failed").length;
+  const errorCount = results.filter((r) => r && r.status === "error").length;
   console.log(`Processed: ${results.length}`);
   console.log(`Successful: ${successCount}`);
   console.log(`Partial: ${partialCount}`);
