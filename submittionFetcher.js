@@ -279,6 +279,7 @@ async function processSingleSubmission(submissionData) {
   result.refUsed = successfulRef; // Store the ref that worked
   console.log(` -> Proceeding to download files using ref '${successfulRef}'.`);
   const finalRepoInfo = { ...repoInfo, ref: successfulRef };
+  result.repoInfo = finalRepoInfo;
   const finalBaseRawUrl = buildRawBaseUrl(finalRepoInfo);
 
   let successCount = 0;
@@ -431,8 +432,9 @@ async function downloadAllSubmissionsFromCsv() {
           structureDetected: result.structureUsed,
           refAttempted:
             result.refUsed ||
-            (repoInfo
-              ? repoInfo.initialRef || `${DEFAULT_BRANCH}, ${FALLBACK_BRANCH}`
+            (result.repoInfo
+              ? result.repoInfo.initialRef ||
+                `${DEFAULT_BRANCH}, ${FALLBACK_BRANCH}`
               : "N/A"), // Show ref used or attempted
           fileDetails: result.files
             .filter((f) => f.status !== "success")
@@ -523,6 +525,53 @@ async function downloadAllSubmissionsFromCsv() {
   console.log(`Failed (Structure/Download): ${failedCount}`);
   console.log(`Errors (Processing): ${errorCount}`);
   console.log("\n--- Process Complete ---");
+
+  // --- Check for missing submissions ---
+  await checkMissingSubmissions(submissionsArray);
+}
+
+// --- Check for missing submissions ---
+async function checkMissingSubmissions(submissionsArray) {
+  try {
+    // Read existing folders in the Submissions_auto directory
+    const existingFolders = await fs.readdir(SUBMISSIONS_DIR);
+    const existingEmails = existingFolders.map((folder) => folder); // Assuming folder names are sanitized emails
+
+    // Read the failed submissions log
+    const failedLogContent = await fs.readFile(FAILED_LOG_FILE, {
+      encoding: "utf8",
+    });
+    const failedEmails = [];
+    const failedLogLines = failedLogContent.split("\n");
+
+    // Extract emails from the failed log
+    for (const line of failedLogLines) {
+      const match = line.match(/Email: (.+)/);
+      if (match) {
+        failedEmails.push(match[1].trim());
+      }
+    }
+
+    // Check for emails that are not in existing folders and not in failed log
+    const missingEmails = submissionsArray
+      .map((submission) => submission.email)
+      .filter(
+        (email) =>
+          !existingEmails.includes(email) && !failedEmails.includes(email)
+      );
+
+    if (missingEmails.length > 0) {
+      console.log("\n--- Missing Submissions ---");
+      console.log(
+        "The following emails do not have corresponding folders and are not in the failed log:"
+      );
+      missingEmails.forEach((email) => console.log(`- ${email}`));
+    } else {
+      console.log("\n--- All submissions accounted for ---");
+    }
+  } catch (error) {
+    console.error(`Error checking for missing submissions: ${error.message}`);
+  }
 }
 
 // --- Run the process ---
