@@ -136,11 +136,22 @@ async function fetchFileContent(rawUrl) {
  */
 async function downloadAndSaveFile(rawFileUrl, localFilePath) {
   try {
+    const dirName = path.dirname(localFilePath);
+
+    // Check if the directory already exists
+    try {
+      await fs.access(dirName);
+      console.log(
+        `    Skipping download: Directory already exists at ${dirName}`
+      );
+      return { status: "skipped", error: "Directory already exists." };
+    } catch (error) {
+      // Directory does not exist, proceed to create it
+      await fs.mkdir(dirName, { recursive: true });
+    }
+
     console.log(` -> Attempting to download: ${rawFileUrl}`);
     const content = await fetchFileContent(rawFileUrl);
-
-    const dirName = path.dirname(localFilePath);
-    await fs.mkdir(dirName, { recursive: true });
 
     await fs.writeFile(localFilePath, content);
     console.log(`    Saved to: ${localFilePath}`);
@@ -279,7 +290,7 @@ async function processSingleSubmission(submissionData) {
       relativeFilePath
     );
     const fileResult = await downloadAndSaveFile(rawFileUrl, localFilePath);
-    if (fileResult.status === "success") {
+    if (fileResult.status === "success" || fileResult.status === "skipped") {
       successCount++;
     }
     return {
@@ -402,14 +413,14 @@ async function downloadAllSubmissionsFromCsv() {
   const failedSubmissions = [];
   const results = []; // Keep track of all results for summary
 
-  // Process submissions sequentially
-  for (const subInfo of submissionsArray) {
+  // Process submissions in parallel
+  const processingPromises = submissionsArray.map(async (subInfo) => {
     let result; // Define result variable outside try block
     try {
       result = await processSingleSubmission(subInfo); // This now handles ref checking
       results.push(result);
       // Log failures based on the final status after trying refs
-      if (result.status !== "success") {
+      if (result.status !== "success" && result.status !== "skipped") {
         failedSubmissions.push({
           name: result.name,
           email: result.email,
@@ -454,7 +465,10 @@ async function downloadAllSubmissionsFromCsv() {
         fileDetails: [],
       });
     }
-  }
+  });
+
+  // Wait for all processing promises to complete
+  await Promise.all(processingPromises);
 
   // --- Log Failures ---
   if (failedSubmissions.length > 0) {
