@@ -346,7 +346,7 @@ async function runAutograder(): Promise<void> {
     await importInstructorFunctions();
 
   // Discover student submissions
-  const submissionsDir = path.join(process.cwd(), "submissions");
+  const submissionsDir = path.join(process.cwd(), "Submissions_auto");
   const students = discoverStudentSubmissions(submissionsDir);
 
   // Prepare the grading report
@@ -414,23 +414,121 @@ async function runAutograder(): Promise<void> {
     gradingReport.students.push(studentResult);
   }
 
-  // Generate combined art HTML
-  console.log("\nGenerating combined art visualization...");
-  const allPathData: { start: Point; end: Point; color: Color }[] = [];
+  // Generate grid layout of student art
+  console.log("\nGenerating grid layout visualization of student art...");
+
+  // Configuration for the grid layout
+  const canvasWidth = 300; // Individual canvas width
+  const canvasHeight = 300; // Individual canvas height
+  const padding = 20; // Padding between canvases
+  const studentsPerRow = 3; // Number of students per row
+  const labelHeight = 30; // Height for student ID label
+
+  // Calculate the full grid dimensions
+  const totalRows = Math.ceil(gradingReport.students.length / studentsPerRow);
+  const fullWidth = studentsPerRow * (canvasWidth + padding) + padding;
+  const fullHeight =
+    totalRows * (canvasHeight + labelHeight + padding) + padding;
+
+  // Generate SVG elements for each student
+  let svgElements = "";
+
   gradingReport.students.forEach((student, index) => {
-    // Add student's art to the combined collection
-    const offset = index * 50; // Use direct index instead of indexOf
+    // Calculate position in the grid
+    const row = Math.floor(index / studentsPerRow);
+    const col = index % studentsPerRow;
+
+    const xOffset = padding + col * (canvasWidth + padding);
+    const yOffset = padding + row * (canvasHeight + labelHeight + padding);
+
+    // Add student ID label
+    svgElements += `
+      <text 
+        x="${xOffset + canvasWidth / 2}" 
+        y="${yOffset + labelHeight / 2}" 
+        text-anchor="middle" 
+        dominant-baseline="middle" 
+        font-family="Arial" 
+        font-size="14" 
+        font-weight="bold"
+      >
+        ${student.studentId}
+      </text>
+    `;
+
+    // Create background for the canvas
+    svgElements += `
+      <rect 
+        x="${xOffset}" 
+        y="${yOffset + labelHeight}" 
+        width="${canvasWidth}" 
+        height="${canvasHeight}" 
+        fill="#f0f0f0" 
+        stroke="#ccc" 
+        stroke-width="1"
+      />
+    `;
+
+    // Add the student's art paths
     student.personalArt.pathData.forEach((segment) => {
-      allPathData.push({
-        start: { x: segment.start.x + offset, y: segment.start.y },
-        end: { x: segment.end.x + offset, y: segment.end.y },
-        color: segment.color,
-      });
+      // Scale and center the paths within each canvas
+      const x1 = segment.start.x + canvasWidth / 2;
+      const y1 = segment.start.y + canvasHeight / 2 + labelHeight;
+      const x2 = segment.end.x + canvasWidth / 2;
+      const y2 = segment.end.y + canvasHeight / 2 + labelHeight;
+
+      svgElements += `
+        <line 
+          x1="${xOffset + x1}" 
+          y1="${yOffset + y1}" 
+          x2="${xOffset + x2}" 
+          y2="${yOffset + y2}" 
+          stroke="${segment.color}" 
+          stroke-width="2"
+        />
+      `;
     });
+
+    // Add error message if art generation failed
+    if (student.personalArt.error) {
+      svgElements += `
+        <text 
+          x="${xOffset + canvasWidth / 2}" 
+          y="${yOffset + labelHeight + canvasHeight / 2}" 
+          text-anchor="middle" 
+          dominant-baseline="middle" 
+          font-family="Arial" 
+          font-size="12" 
+          fill="red"
+        >
+          Error generating art
+        </text>
+      `;
+    }
   });
 
-  const combinedArtHtml = generateHTML(allPathData);
-  saveHTMLToFile(combinedArtHtml, "combined_art.html");
+  // Create the HTML with SVG grid
+  const gridHTML = `<!DOCTYPE html>
+  <html>
+  <head>
+      <title>Student Art Gallery</title>
+      <style>
+          body { margin: 0; font-family: Arial, sans-serif; }
+          h1 { text-align: center; margin: 20px 0; }
+          .container { display: flex; justify-content: center; }
+      </style>
+  </head>
+  <body>
+      <h1>Student Art Gallery</h1>
+      <div class="container">
+        <svg width="${fullWidth}" height="${fullHeight}">
+          ${svgElements}
+        </svg>
+      </div>
+  </body>
+  </html>`;
+
+  saveHTMLToFile(gridHTML, "student_art_gallery.html");
 
   // Save grading report
   const reportPath = path.join(process.cwd(), "grading_report.json");
@@ -450,9 +548,9 @@ async function runAutograder(): Promise<void> {
     `Successful Art Generation: ${gradingReport.summary.personalArtGenerationSuccess}/${gradingReport.summary.totalStudents}`
   );
 
-  // Open the combined art visualization
-  console.log("\nOpening combined art visualization...");
-  openHTML("combined_art.html");
+  // Open the grid art visualization
+  console.log("\nOpening student art gallery visualization...");
+  openHTML("student_art_gallery.html");
 }
 
 // Run the autograder if this file is executed directly
