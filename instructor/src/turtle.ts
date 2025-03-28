@@ -20,6 +20,8 @@ export interface Turtle {
   color(color: Color): void; // Optional for personal art
   getPosition(): Point; // Helpful for testing/debugging
   getHeading(): number; // Helpful for testing/debugging
+  penUp(): void; // New method to lift the pen (for drawPersonalArt in PS0)
+  penDown(): void; // New method to put the pen down (for drawPersonalArt in PS0)
 }
 
 // A very basic, in-memory Turtle implementation for Problem Set 0.
@@ -29,6 +31,15 @@ export class SimpleTurtle implements Turtle {
   private headingDegrees: number; // 0 degrees is up
   private penColor: Color = "black";
   private path: { start: Point; end: Point; color: Color }[] = []; // Store drawn lines
+  private penIsDown: boolean = true;
+
+  penUp(): void {
+    this.penIsDown = false;
+  }
+
+  penDown(): void {
+    this.penIsDown = true;
+  }
 
   constructor(startX: number = 0, startY: number = 0) {
     this.x = startX;
@@ -42,7 +53,15 @@ export class SimpleTurtle implements Turtle {
     this.x += units * Math.sin(headingRadians); // Y-axis is typically inverted in graphics
     this.y -= units * Math.cos(headingRadians);
     const endPoint: Point = { x: this.x, y: this.y };
-    this.path.push({ start: startPoint, end: endPoint, color: this.penColor });
+
+    // Only draw the path if pen is down
+    if (this.penIsDown) {
+      this.path.push({
+        start: startPoint,
+        end: endPoint,
+        color: this.penColor,
+      });
+    }
   }
 
   turn(degrees: number): void {

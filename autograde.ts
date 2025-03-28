@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { execSync } from "child_process";
-import { SimpleTurtle, Point, Color } from "./instructor/turtle";
+import { SimpleTurtle, Point, Color } from "./instructor/src/turtle";
 
 /**
  * Type definitions for grading results
@@ -59,7 +59,7 @@ async function importInstructorFunctions(): Promise<{
       saveHTMLToFile,
       openHTML,
       drawPersonalArt,
-    } = require("./instructor/turtlesoup");
+    } = require("./instructor/src/turtlesoup");
     return { generateHTML, saveHTMLToFile, openHTML, drawPersonalArt };
   } catch (error) {
     console.error("Error importing instructor functions:", error);
@@ -147,15 +147,15 @@ function runTests(
     if (useInstructorTests) {
       // Test student implementation against instructor tests
       fs.copyFileSync(
-        path.join("instructor", "turtle.ts"),
+        path.join("instructor/src", "turtle.ts"),
         path.join(tmpTestDir, "turtle.ts")
       );
       fs.copyFileSync(
-        path.join(studentDir, "turtlesoup.ts"),
+        path.join(studentDir, "src", "turtlesoup.ts"),
         path.join(tmpTestDir, "turtlesoup.ts")
       );
       fs.copyFileSync(
-        path.join("instructor", "turtlesoupTest.ts"),
+        path.join("instructor/test", "turtlesoupTest.ts"),
         path.join(tmpTestDir, "turtlesoupTest.ts")
       );
 
@@ -176,15 +176,15 @@ function runTests(
     } else {
       // Test instructor implementation against student tests
       fs.copyFileSync(
-        path.join("instructor", "turtle.ts"),
+        path.join("instructor/src", "turtle.ts"),
         path.join(tmpTestDir, "turtle.ts")
       );
       fs.copyFileSync(
-        path.join("instructor", "turtlesoup.ts"),
+        path.join("instructor/src", "turtlesoup.ts"),
         path.join(tmpTestDir, "turtlesoup.ts")
       );
       fs.copyFileSync(
-        path.join(studentDir, "turtlesoupTest.ts"),
+        path.join(studentDir, "test", "turtlesoupTest.ts"),
         path.join(tmpTestDir, "turtlesoupTest.ts")
       );
 
@@ -271,11 +271,11 @@ function collectPersonalArt(studentDir: string): {
 
     // Copy necessary files
     fs.copyFileSync(
-      path.join("instructor", "turtle.ts"),
+      path.join("instructor/src", "turtle.ts"),
       path.join(tmpArtDir, "turtle.ts")
     );
     fs.copyFileSync(
-      path.join(studentDir, "turtlesoup.ts"),
+      path.join(studentDir, "src", "turtlesoup.ts"),
       path.join(tmpArtDir, "turtlesoup.ts")
     );
 
