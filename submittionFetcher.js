@@ -283,12 +283,12 @@ async function processSingleSubmission(submissionData) {
   const finalBaseRawUrl = buildRawBaseUrl(finalRepoInfo);
 
   let successCount = 0;
-  const downloadPromises = targetFiles.map(async (relativeFilePath) => {
+  const downloadPromises = targetFiles.map(async (relativeFilePath, index) => {
     const rawFileUrl = finalBaseRawUrl + relativeFilePath; // Use finalBaseRawUrl
     const localFilePath = path.join(
       SUBMISSIONS_DIR,
       sanitizedFolderName, // Use the consistent folder name
-      relativeFilePath
+      STRUCTURE_1_FILES[index]
     );
     const fileResult = await downloadAndSaveFile(rawFileUrl, localFilePath);
     if (fileResult.status === "success" || fileResult.status === "skipped") {
