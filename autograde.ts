@@ -1,8 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
-import { execSync } from "child_process";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { SimpleTurtle, Point, Color } from "./instructor/src/turtle";
 import * as os from "os";
+import * as fsPromises from "fs/promises";
+
+const execAsync = promisify(exec);
 
 /**
  * Type definitions for grading results
@@ -75,10 +79,14 @@ async function importInstructorFunctions(): Promise<{
  * @param submissionsDir The base directory containing student submissions
  * @returns Array of student directory names
  */
-function discoverStudentSubmissions(submissionsDir: string): string[] {
+async function discoverStudentSubmissions(
+  submissionsDir: string
+): Promise<string[]> {
   try {
-    const studentDirs = fs
-      .readdirSync(submissionsDir, { withFileTypes: true })
+    const entries = await fsPromises.readdir(submissionsDir, {
+      withFileTypes: true,
+    });
+    const studentDirs = entries
       .filter((dirent) => dirent.isDirectory())
       .map((dirent) => dirent.name);
 
@@ -100,55 +108,58 @@ function discoverStudentSubmissions(submissionsDir: string): string[] {
  * @param useInstructorTests Whether to use instructor tests or student tests
  * @returns Test results with pass/fail status
  */
-function runTests(
+async function runTests(
   studentDir: string,
   useInstructorTests: boolean
-): {
+): Promise<{
   overall: boolean;
   details: { [testName: string]: boolean };
   errors?: string;
-} {
+}> {
   // Prepare the environment for testing
   const tmpTestDir = path.join(studentDir, "tmp_test");
 
   try {
     // Create temporary test directory
-    if (!fs.existsSync(tmpTestDir)) {
-      fs.mkdirSync(tmpTestDir, { recursive: true });
+    try {
+      await fsPromises.mkdir(tmpTestDir, { recursive: true });
+    } catch (error) {
+      // Directory might already exist, continue
     }
 
     // Set up the test environment using symbolic links
     try {
       if (useInstructorTests) {
         // Test student implementation against instructor tests
-        fs.symlinkSync(
+        await fsPromises.symlink(
           path.join(process.cwd(), "instructor/src", "turtle.ts"),
           path.join(tmpTestDir, "turtle.ts")
         );
-        fs.symlinkSync(
+        await fsPromises.symlink(
           path.join(studentDir, "src", "turtlesoup.ts"),
           path.join(tmpTestDir, "turtlesoup.ts")
         );
 
         // For the test file, we need to create a modified copy because we need to fix imports
-        const testContent = fs
-          .readFileSync(
+        const testContent = (
+          await fsPromises.readFile(
             path.join(process.cwd(), "instructor/test", "turtlesoupTest.ts"),
             "utf-8"
           )
+        )
           .replace(/from "\.\.\/src\/turtlesoup"/g, 'from "./turtlesoup"')
           .replace(/from "\.\.\/src\/turtle"/g, 'from "./turtle"');
-        fs.writeFileSync(
+        await fsPromises.writeFile(
           path.join(tmpTestDir, "turtlesoupTest.ts"),
           testContent
         );
       } else {
         // Test instructor implementation against student tests
-        fs.symlinkSync(
+        await fsPromises.symlink(
           path.join(process.cwd(), "instructor/src", "turtle.ts"),
           path.join(tmpTestDir, "turtle.ts")
         );
-        fs.symlinkSync(
+        await fsPromises.symlink(
           path.join(process.cwd(), "instructor/src", "turtlesoup.ts"),
           path.join(tmpTestDir, "turtlesoup.ts")
         );
@@ -159,7 +170,9 @@ function runTests(
           "test",
           "turtlesoupTest.ts"
         );
-        if (!fs.existsSync(studentTestPath)) {
+        try {
+          await fsPromises.access(studentTestPath);
+        } catch {
           return {
             overall: false,
             details: {},
@@ -168,13 +181,14 @@ function runTests(
         }
 
         // For the test file, we need to create a modified copy because we need to fix imports
-        const testContent = fs
-          .readFileSync(studentTestPath, "utf-8")
+        const testContent = (
+          await fsPromises.readFile(studentTestPath, "utf-8")
+        )
           .replace(/from "\.\.\/src\/turtlesoup"/g, 'from "./turtlesoup"')
           .replace(/from "\.\/turtlesoup"/g, 'from "./turtlesoup"')
           .replace(/from "\.\.\/src\/turtle"/g, 'from "./turtle"')
           .replace(/from "\.\/turtle"/g, 'from "./turtle"');
-        fs.writeFileSync(
+        await fsPromises.writeFile(
           path.join(tmpTestDir, "turtlesoupTest.ts"),
           testContent
         );
@@ -192,8 +206,7 @@ function runTests(
     // Run the tests directly using project dependencies
     try {
       const cmd = `cd ${tmpTestDir} && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json`;
-      const output = execSync(cmd, {
-        encoding: "utf-8",
+      const { stdout: output } = await execAsync(cmd, {
         maxBuffer: 1024 * 1024, // Increase buffer size to 1MB
         timeout: 15000, // 15 second timeout
       });
@@ -276,7 +289,7 @@ function runTests(
     } finally {
       // Clean up
       try {
-        fs.rmSync(tmpTestDir, { recursive: true, force: true });
+        await fsPromises.rm(tmpTestDir, { recursive: true, force: true });
       } catch (e) {
         // Ignore cleanup errors
       }
@@ -284,7 +297,7 @@ function runTests(
   } catch (error: any) {
     // Handle any other errors
     try {
-      fs.rmSync(tmpTestDir, { recursive: true, force: true });
+      await fsPromises.rm(tmpTestDir, { recursive: true, force: true });
     } catch (e) {
       // Ignore cleanup errors
     }
@@ -302,24 +315,26 @@ function runTests(
  * @param studentDir The student's directory
  * @returns Path data from the turtle after drawing
  */
-function collectPersonalArt(studentDir: string): {
+async function collectPersonalArt(studentDir: string): Promise<{
   pathData: { start: Point; end: Point; color: Color }[];
   error?: string;
-} {
+}> {
   const tmpArtDir = path.join(studentDir, "tmp_art");
 
   try {
     // Create temporary directory
-    if (!fs.existsSync(tmpArtDir)) {
-      fs.mkdirSync(tmpArtDir, { recursive: true });
+    try {
+      await fsPromises.mkdir(tmpArtDir, { recursive: true });
+    } catch (error) {
+      // Directory might already exist, continue
     }
 
     // Set up files using symlinks where possible
-    fs.symlinkSync(
+    await fsPromises.symlink(
       path.join(process.cwd(), "instructor/src", "turtle.ts"),
       path.join(tmpArtDir, "turtle.ts")
     );
-    fs.symlinkSync(
+    await fsPromises.symlink(
       path.join(studentDir, "src", "turtlesoup.ts"),
       path.join(tmpArtDir, "turtlesoup.ts")
     );
@@ -344,28 +359,30 @@ function collectPersonalArt(studentDir: string): {
       })();
     `;
 
-    fs.writeFileSync(path.join(tmpArtDir, "wrapper.ts"), wrapperContent);
+    await fsPromises.writeFile(
+      path.join(tmpArtDir, "wrapper.ts"),
+      wrapperContent
+    );
 
     // Execute the wrapper
-    execSync(`cd ${tmpArtDir} && npx ts-node wrapper.ts`, {
-      encoding: "utf-8",
+    await execAsync(`cd ${tmpArtDir} && npx ts-node wrapper.ts`, {
       timeout: 10000, // 10 second timeout
     });
 
     // Read the path data
     const pathData = JSON.parse(
-      fs.readFileSync(path.join(tmpArtDir, "path.json"), "utf-8")
+      await fsPromises.readFile(path.join(tmpArtDir, "path.json"), "utf-8")
     );
 
     // Clean up
-    fs.rmSync(tmpArtDir, { recursive: true, force: true });
+    await fsPromises.rm(tmpArtDir, { recursive: true, force: true });
 
     return { pathData };
   } catch (error: any) {
     // Try to clean up if possible
     if (fs.existsSync(tmpArtDir)) {
       try {
-        fs.rmSync(tmpArtDir, { recursive: true, force: true });
+        await fsPromises.rm(tmpArtDir, { recursive: true, force: true });
       } catch (e) {
         // Ignore cleanup errors
       }
@@ -408,14 +425,23 @@ async function processStudent(
     timeTaken: 0,
   };
 
-  // Step 1: Test student implementation against instructor tests
-  studentResult.implementationTests = runTests(studentDir, true);
+  try {
+    // Run all tests and art collection in parallel
+    const [implementationTests, studentTests, personalArt] = await Promise.all([
+      runTests(studentDir, true),
+      runTests(studentDir, false),
+      collectPersonalArt(studentDir),
+    ]);
 
-  // Step 2: Test instructor implementation against student tests
-  studentResult.studentTests = runTests(studentDir, false);
-
-  // Step 3: Collect personal art
-  studentResult.personalArt = collectPersonalArt(studentDir);
+    studentResult.implementationTests = implementationTests;
+    studentResult.studentTests = studentTests;
+    studentResult.personalArt = personalArt;
+  } catch (error: any) {
+    console.error(`Error processing student ${studentId}:`, error);
+    studentResult.implementationTests.errors = error.message;
+    studentResult.studentTests.errors = error.message;
+    studentResult.personalArt.error = error.message;
+  }
 
   // Calculate time taken
   const endTime = Date.now();
@@ -437,7 +463,7 @@ async function runAutograder(): Promise<void> {
 
   // Discover student submissions
   const submissionsDir = path.join(process.cwd(), "Submissions_auto");
-  const students = discoverStudentSubmissions(submissionsDir);
+  const students = await discoverStudentSubmissions(submissionsDir);
 
   // Prepare the grading report
   const gradingReport: GradingReport = {
@@ -462,7 +488,7 @@ async function runAutograder(): Promise<void> {
   const concurrencyLimit = Math.max(1, os.cpus().length - 1); // Leave one core free
   console.log(`Using ${concurrencyLimit} parallel processes`);
 
-  // Process all students
+  // Process all students in batches
   const results: StudentResult[] = [];
   const totalBatches = Math.ceil(students.length / concurrencyLimit);
 
@@ -479,10 +505,9 @@ async function runAutograder(): Promise<void> {
     const batchStartTime = Date.now();
 
     // Process all students in this batch concurrently
-    const batchPromises = batch.map((studentId) =>
-      processStudent(studentId, submissionsDir)
+    const batchResults = await Promise.all(
+      batch.map((studentId) => processStudent(studentId, submissionsDir))
     );
-    const batchResults = await Promise.all(batchPromises);
 
     results.push(...batchResults);
 
@@ -624,7 +649,7 @@ async function runAutograder(): Promise<void> {
   </body>
   </html>`;
 
-  saveHTMLToFile(gridHTML, "student_art_gallery.html");
+  await fsPromises.writeFile("student_art_gallery.html", gridHTML);
 
   // Create a simplified grading report without personalArt
   const simplifiedReport = {
@@ -641,7 +666,10 @@ async function runAutograder(): Promise<void> {
 
   // Save grading report
   const reportPath = path.join(process.cwd(), "grading_report.json");
-  fs.writeFileSync(reportPath, JSON.stringify(simplifiedReport, null, 2));
+  await fsPromises.writeFile(
+    reportPath,
+    JSON.stringify(simplifiedReport, null, 2)
+  );
   console.log(`Grading report saved to ${reportPath}`);
 
   // Print summary statistics
