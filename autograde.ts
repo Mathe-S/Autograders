@@ -106,26 +106,31 @@ async function discoverStudentSubmissions(
  * Run Mocha tests programmatically with a specific turtlesoup implementation
  * @param studentDir The student's directory
  * @param useInstructorTests Whether to use instructor tests or student tests
+ * @param operation The operation being tested ('implementation', 'student', or 'art')
  * @returns Test results with pass/fail status
  */
 async function runTests(
   studentDir: string,
-  useInstructorTests: boolean
+  useInstructorTests: boolean,
+  operation: "implementation" | "student" | "art"
 ): Promise<{
   overall: boolean;
   details: { [testName: string]: boolean };
   errors?: string;
 }> {
-  // Prepare the environment for testing
-  const tmpTestDir = path.join(studentDir, "tmp_test");
+  // Prepare the environment for testing with a unique directory for each operation
+  const tmpTestDir = path.join(studentDir, `tmp_${operation}`);
 
   try {
-    // Create temporary test directory
+    // Clean up the entire tmp directory first
     try {
-      await fsPromises.mkdir(tmpTestDir, { recursive: true });
+      await fsPromises.rm(tmpTestDir, { recursive: true, force: true });
     } catch (error) {
-      // Directory might already exist, continue
+      // Ignore errors if directory doesn't exist
     }
+
+    // Create fresh temporary test directory
+    await fsPromises.mkdir(tmpTestDir, { recursive: true });
 
     // Set up the test environment using symbolic links
     try {
@@ -322,12 +327,15 @@ async function collectPersonalArt(studentDir: string): Promise<{
   const tmpArtDir = path.join(studentDir, "tmp_art");
 
   try {
-    // Create temporary directory
+    // Clean up the entire tmp directory first
     try {
-      await fsPromises.mkdir(tmpArtDir, { recursive: true });
+      await fsPromises.rm(tmpArtDir, { recursive: true, force: true });
     } catch (error) {
-      // Directory might already exist, continue
+      // Ignore errors if directory doesn't exist
     }
+
+    // Create fresh temporary directory
+    await fsPromises.mkdir(tmpArtDir, { recursive: true });
 
     // Set up files using symlinks where possible
     await fsPromises.symlink(
@@ -426,10 +434,10 @@ async function processStudent(
   };
 
   try {
-    // Run all tests and art collection in parallel
+    // Run all tests and art collection in parallel with separate directories
     const [implementationTests, studentTests, personalArt] = await Promise.all([
-      runTests(studentDir, true),
-      runTests(studentDir, false),
+      runTests(studentDir, true, "implementation"),
+      runTests(studentDir, false, "student"),
       collectPersonalArt(studentDir),
     ]);
 
