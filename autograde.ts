@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { execSync } from "child_process";
 import { SimpleTurtle, Point, Color } from "./instructor/src/turtle";
+import * as os from "os";
 
 /**
  * Type definitions for grading results
@@ -26,6 +27,7 @@ interface StudentResult {
     pathData: { start: Point; end: Point; color: Color }[];
     error?: string;
   };
+  timeTaken?: number; // Time taken to grade this student in milliseconds
 }
 
 interface GradingReport {
@@ -37,12 +39,15 @@ interface GradingReport {
     passedStudentTests: number;
     personalArtGenerationSuccess: number;
   };
+  timingInfo?: {
+    totalTime: number;
+    studentTimes: { [studentId: string]: number };
+  };
 }
 
 /**
  * Import necessary functions from the instructor's turtlesoup.ts
  */
-// Helper function to dynamically import functions from the instructor's implementation
 async function importInstructorFunctions(): Promise<{
   generateHTML: (
     pathData: { start: Point; end: Point; color: Color }[]
@@ -51,9 +56,7 @@ async function importInstructorFunctions(): Promise<{
   openHTML: (filename?: string) => void;
   drawPersonalArt?: (turtle: SimpleTurtle) => void;
 }> {
-  // We need to import these functions to use in our grading
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const {
       generateHTML,
       saveHTMLToFile,
@@ -92,35 +95,6 @@ function discoverStudentSubmissions(submissionsDir: string): string[] {
 }
 
 /**
- * Copy instructor files to a target directory
- * @param targetDir The directory to copy files to
- * @param files Array of files to copy
- */
-function copyFiles(
-  sourceDir: string,
-  targetDir: string,
-  files: string[]
-): void {
-  try {
-    for (const file of files) {
-      const sourcePath = path.join(sourceDir, file);
-      const targetPath = path.join(targetDir, file);
-
-      if (fs.existsSync(sourcePath)) {
-        const content = fs.readFileSync(sourcePath, "utf-8");
-        fs.writeFileSync(targetPath, content);
-        console.log(`Copied ${sourcePath} to ${targetPath}`);
-      } else {
-        console.error(`Source file ${sourcePath} does not exist`);
-      }
-    }
-  } catch (error) {
-    console.error("Error copying files:", error);
-    throw error;
-  }
-}
-
-/**
  * Run Mocha tests programmatically with a specific turtlesoup implementation
  * @param studentDir The student's directory
  * @param useInstructorTests Whether to use instructor tests or student tests
@@ -140,114 +114,185 @@ function runTests(
   try {
     // Create temporary test directory
     if (!fs.existsSync(tmpTestDir)) {
-      fs.mkdirSync(tmpTestDir);
+      fs.mkdirSync(tmpTestDir, { recursive: true });
     }
 
-    // Copy necessary files
-    if (useInstructorTests) {
-      // Test student implementation against instructor tests
-      fs.copyFileSync(
-        path.join("instructor/src", "turtle.ts"),
-        path.join(tmpTestDir, "turtle.ts")
-      );
-      fs.copyFileSync(
-        path.join(studentDir, "src", "turtlesoup.ts"),
-        path.join(tmpTestDir, "turtlesoup.ts")
-      );
-      fs.copyFileSync(
-        path.join("instructor/test", "turtlesoupTest.ts"),
-        path.join(tmpTestDir, "turtlesoupTest.ts")
-      );
+    // Set up the test environment using symbolic links
+    try {
+      if (useInstructorTests) {
+        // Test student implementation against instructor tests
+        fs.symlinkSync(
+          path.join(process.cwd(), "instructor/src", "turtle.ts"),
+          path.join(tmpTestDir, "turtle.ts")
+        );
+        fs.symlinkSync(
+          path.join(studentDir, "src", "turtlesoup.ts"),
+          path.join(tmpTestDir, "turtlesoup.ts")
+        );
 
-      // Fix imports in the test file
-      let testContent = fs.readFileSync(
-        path.join(tmpTestDir, "turtlesoupTest.ts"),
-        "utf-8"
-      );
-      testContent = testContent.replace(
-        /from "\.\.\/src\/turtlesoup"/g,
-        'from "./turtlesoup"'
-      );
-      testContent = testContent.replace(
-        /from "\.\.\/src\/turtle"/g,
-        'from "./turtle"'
-      );
-      fs.writeFileSync(path.join(tmpTestDir, "turtlesoupTest.ts"), testContent);
-    } else {
-      // Test instructor implementation against student tests
-      fs.copyFileSync(
-        path.join("instructor/src", "turtle.ts"),
-        path.join(tmpTestDir, "turtle.ts")
-      );
-      fs.copyFileSync(
-        path.join("instructor/src", "turtlesoup.ts"),
-        path.join(tmpTestDir, "turtlesoup.ts")
-      );
-      fs.copyFileSync(
-        path.join(studentDir, "test", "turtlesoupTest.ts"),
-        path.join(tmpTestDir, "turtlesoupTest.ts")
-      );
+        // For the test file, we need to create a modified copy because we need to fix imports
+        const testContent = fs
+          .readFileSync(
+            path.join(process.cwd(), "instructor/test", "turtlesoupTest.ts"),
+            "utf-8"
+          )
+          .replace(/from "\.\.\/src\/turtlesoup"/g, 'from "./turtlesoup"')
+          .replace(/from "\.\.\/src\/turtle"/g, 'from "./turtle"');
+        fs.writeFileSync(
+          path.join(tmpTestDir, "turtlesoupTest.ts"),
+          testContent
+        );
+      } else {
+        // Test instructor implementation against student tests
+        fs.symlinkSync(
+          path.join(process.cwd(), "instructor/src", "turtle.ts"),
+          path.join(tmpTestDir, "turtle.ts")
+        );
+        fs.symlinkSync(
+          path.join(process.cwd(), "instructor/src", "turtlesoup.ts"),
+          path.join(tmpTestDir, "turtlesoup.ts")
+        );
 
-      // Fix imports in the test file
-      let testContent = fs.readFileSync(
-        path.join(tmpTestDir, "turtlesoupTest.ts"),
-        "utf-8"
-      );
-      testContent = testContent.replace(
-        /from "\.\/turtlesoup"/g,
-        'from "./turtlesoup"'
-      );
-      testContent = testContent.replace(
-        /from "\.\/turtle"/g,
-        'from "./turtle"'
-      );
-      fs.writeFileSync(path.join(tmpTestDir, "turtlesoupTest.ts"), testContent);
+        // Skip if student test file doesn't exist
+        const studentTestPath = path.join(
+          studentDir,
+          "test",
+          "turtlesoupTest.ts"
+        );
+        if (!fs.existsSync(studentTestPath)) {
+          return {
+            overall: false,
+            details: {},
+            errors: "Student test file does not exist",
+          };
+        }
+
+        // For the test file, we need to create a modified copy because we need to fix imports
+        const testContent = fs
+          .readFileSync(studentTestPath, "utf-8")
+          .replace(/from "\.\.\/src\/turtlesoup"/g, 'from "./turtlesoup"')
+          .replace(/from "\.\/turtlesoup"/g, 'from "./turtlesoup"')
+          .replace(/from "\.\.\/src\/turtle"/g, 'from "./turtle"')
+          .replace(/from "\.\/turtle"/g, 'from "./turtle"');
+        fs.writeFileSync(
+          path.join(tmpTestDir, "turtlesoupTest.ts"),
+          testContent
+        );
+      }
+    } catch (error: any) {
+      // Handle symlink creation errors (might happen if file already exists)
+      console.error(`Error creating symlinks for ${studentDir}:`, error);
+      return {
+        overall: false,
+        details: {},
+        errors: `Error setting up test environment: ${error.message}`,
+      };
     }
 
-    // Run the tests and capture output
-    const cmd = `cd ${tmpTestDir} && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json`;
-    const output = execSync(cmd, { encoding: "utf-8" });
+    // Run the tests directly using project dependencies
+    try {
+      const cmd = `cd ${tmpTestDir} && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json`;
+      const output = execSync(cmd, {
+        encoding: "utf-8",
+        maxBuffer: 1024 * 1024, // Increase buffer size to 1MB
+        timeout: 15000, // 15 second timeout
+      });
 
-    // Parse the JSON output from Mocha
-    const results = JSON.parse(output);
-    const testResults: { [testName: string]: boolean } = {};
-    let allPassed = true;
+      // Parse the JSON output from Mocha
+      try {
+        const results = JSON.parse(output);
+        const testResults: { [testName: string]: boolean } = {};
+        let allPassed = true;
 
-    // Process test results
-    for (const test of results.passes) {
-      const testTitle = test.fullTitle;
-      testResults[testTitle] = true;
-    }
+        // Process test results
+        if (results.passes) {
+          for (const test of results.passes) {
+            const testTitle = test.fullTitle;
+            testResults[testTitle] = true;
+          }
+        }
 
-    for (const test of results.failures) {
-      const testTitle = test.fullTitle;
-      testResults[testTitle] = false;
-      allPassed = false;
-    }
+        if (results.failures) {
+          for (const test of results.failures) {
+            const testTitle = test.fullTitle;
+            testResults[testTitle] = false;
+            allPassed = false;
+          }
+        }
 
-    // Clean up
-    fs.rmSync(tmpTestDir, { recursive: true, force: true });
+        return {
+          overall: allPassed && Object.keys(testResults).length > 0,
+          details: testResults,
+        };
+      } catch (parseError: any) {
+        return {
+          overall: false,
+          details: {},
+          errors: `Error parsing test results: ${parseError.message}`,
+        };
+      }
+    } catch (cmdError: any) {
+      // Mocha command failed, but we can still try to extract test results
+      // Even when tests fail, Mocha might have output JSON with failures
+      try {
+        const output = cmdError.stdout || "";
+        if (output.includes("{") && output.includes("}")) {
+          // Try to extract JSON from the output
+          const jsonStart = output.indexOf("{");
+          const jsonOutput = output.substring(jsonStart);
+          const results = JSON.parse(jsonOutput);
 
-    return {
-      overall: allPassed,
-      details: testResults,
-    };
-  } catch (error) {
-    console.error(`Error running tests for ${studentDir}:`, error);
+          const testResults: { [testName: string]: boolean } = {};
 
-    // Try to clean up if possible
-    if (fs.existsSync(tmpTestDir)) {
+          if (results.passes) {
+            for (const test of results.passes) {
+              const testTitle = test.fullTitle;
+              testResults[testTitle] = true;
+            }
+          }
+
+          if (results.failures) {
+            for (const test of results.failures) {
+              const testTitle = test.fullTitle;
+              testResults[testTitle] = false;
+            }
+          }
+
+          return {
+            overall: false,
+            details: testResults,
+            errors: cmdError.message,
+          };
+        }
+      } catch (e) {
+        // Couldn't extract JSON, continue to default error handling
+      }
+
+      return {
+        overall: false,
+        details: {},
+        errors: cmdError.message,
+      };
+    } finally {
+      // Clean up
       try {
         fs.rmSync(tmpTestDir, { recursive: true, force: true });
       } catch (e) {
-        console.error("Error cleaning up temporary test directory:", e);
+        // Ignore cleanup errors
       }
+    }
+  } catch (error: any) {
+    // Handle any other errors
+    try {
+      fs.rmSync(tmpTestDir, { recursive: true, force: true });
+    } catch (e) {
+      // Ignore cleanup errors
     }
 
     return {
       overall: false,
       details: {},
-      errors: error instanceof Error ? error.message : String(error),
+      errors: error.message,
     };
   }
 }
@@ -266,15 +311,15 @@ function collectPersonalArt(studentDir: string): {
   try {
     // Create temporary directory
     if (!fs.existsSync(tmpArtDir)) {
-      fs.mkdirSync(tmpArtDir);
+      fs.mkdirSync(tmpArtDir, { recursive: true });
     }
 
-    // Copy necessary files
-    fs.copyFileSync(
-      path.join("instructor/src", "turtle.ts"),
+    // Set up files using symlinks where possible
+    fs.symlinkSync(
+      path.join(process.cwd(), "instructor/src", "turtle.ts"),
       path.join(tmpArtDir, "turtle.ts")
     );
-    fs.copyFileSync(
+    fs.symlinkSync(
       path.join(studentDir, "src", "turtlesoup.ts"),
       path.join(tmpArtDir, "turtlesoup.ts")
     );
@@ -292,7 +337,6 @@ function collectPersonalArt(studentDir: string): {
           drawPersonalArt(turtle);
           const pathData = JSON.stringify(turtle.getPath());
           fs.writeFileSync('path.json', pathData);
-          console.log('Art generation successful');
         } catch (error) {
           console.error('Error generating art:', error);
           process.exit(1);
@@ -305,6 +349,7 @@ function collectPersonalArt(studentDir: string): {
     // Execute the wrapper
     execSync(`cd ${tmpArtDir} && npx ts-node wrapper.ts`, {
       encoding: "utf-8",
+      timeout: 10000, // 10 second timeout
     });
 
     // Read the path data
@@ -316,29 +361,74 @@ function collectPersonalArt(studentDir: string): {
     fs.rmSync(tmpArtDir, { recursive: true, force: true });
 
     return { pathData };
-  } catch (error) {
-    console.error(`Error collecting personal art for ${studentDir}:`, error);
-
+  } catch (error: any) {
     // Try to clean up if possible
     if (fs.existsSync(tmpArtDir)) {
       try {
         fs.rmSync(tmpArtDir, { recursive: true, force: true });
       } catch (e) {
-        console.error("Error cleaning up temporary art directory:", e);
+        // Ignore cleanup errors
       }
     }
 
     return {
       pathData: [],
-      error: error instanceof Error ? error.message : String(error),
+      error: error.message,
     };
   }
+}
+
+/**
+ * Process a single student
+ * @param studentId Student identifier
+ * @param submissionsDir Directory containing all submissions
+ * @returns Student grading results
+ */
+async function processStudent(
+  studentId: string,
+  submissionsDir: string
+): Promise<StudentResult> {
+  const startTime = Date.now();
+  const studentDir = path.join(submissionsDir, studentId);
+
+  // Initialize student result
+  const studentResult: StudentResult = {
+    studentId,
+    implementationTests: {
+      overall: false,
+      details: {},
+    },
+    studentTests: {
+      overall: false,
+      details: {},
+    },
+    personalArt: {
+      pathData: [],
+    },
+    timeTaken: 0,
+  };
+
+  // Step 1: Test student implementation against instructor tests
+  studentResult.implementationTests = runTests(studentDir, true);
+
+  // Step 2: Test instructor implementation against student tests
+  studentResult.studentTests = runTests(studentDir, false);
+
+  // Step 3: Collect personal art
+  studentResult.personalArt = collectPersonalArt(studentDir);
+
+  // Calculate time taken
+  const endTime = Date.now();
+  studentResult.timeTaken = endTime - startTime;
+
+  return studentResult;
 }
 
 /**
  * Main autograder function
  */
 async function runAutograder(): Promise<void> {
+  const totalStartTime = Date.now();
   console.log("Starting PS0 autograder...");
 
   // Import instructor functions
@@ -359,72 +449,87 @@ async function runAutograder(): Promise<void> {
       passedStudentTests: 0,
       personalArtGenerationSuccess: 0,
     },
+    timingInfo: {
+      totalTime: 0,
+      studentTimes: {},
+    },
   };
 
-  // Process each student
-  for (const studentId of students) {
-    console.log(`\nProcessing student: ${studentId}`);
-    const studentDir = path.join(submissionsDir, studentId);
+  // Process students in parallel with progress logging
+  console.log(`Processing ${students.length} students in parallel...`);
 
-    // Initialize student result
-    const studentResult: StudentResult = {
-      studentId,
-      implementationTests: {
-        overall: false,
-        details: {},
-      },
-      studentTests: {
-        overall: false,
-        details: {},
-      },
-      personalArt: {
-        pathData: [],
-      },
-    };
+  // Use available CPU cores for parallel processing
+  const concurrencyLimit = Math.max(1, os.cpus().length - 1); // Leave one core free
+  console.log(`Using ${concurrencyLimit} parallel processes`);
 
-    // Step 1: Test student implementation against instructor tests
+  // Process all students
+  const results: StudentResult[] = [];
+  const totalBatches = Math.ceil(students.length / concurrencyLimit);
+
+  for (let i = 0; i < students.length; i += concurrencyLimit) {
+    const batchNum = Math.floor(i / concurrencyLimit) + 1;
     console.log(
-      `Running instructor tests against ${studentId}'s implementation...`
+      `Processing batch ${batchNum}/${totalBatches} (${Math.min(
+        concurrencyLimit,
+        students.length - i
+      )} students)`
     );
-    studentResult.implementationTests = runTests(studentDir, true);
 
-    if (studentResult.implementationTests.overall) {
+    const batch = students.slice(i, i + concurrencyLimit);
+    const batchStartTime = Date.now();
+
+    // Process all students in this batch concurrently
+    const batchPromises = batch.map((studentId) =>
+      processStudent(studentId, submissionsDir)
+    );
+    const batchResults = await Promise.all(batchPromises);
+
+    results.push(...batchResults);
+
+    const batchEndTime = Date.now();
+    const batchTime = batchEndTime - batchStartTime;
+    console.log(
+      `Completed batch ${batchNum}/${totalBatches} in ${(
+        batchTime / 1000
+      ).toFixed(1)}s`
+    );
+  }
+
+  // Add results to the grading report
+  results.forEach((result) => {
+    gradingReport.students.push(result);
+    if (gradingReport.timingInfo) {
+      gradingReport.timingInfo.studentTimes[result.studentId] =
+        result.timeTaken || 0;
+    }
+
+    // Update summary statistics
+    if (result.implementationTests.overall) {
       gradingReport.summary.passedImplementationTests++;
     }
-
-    // Step 2: Test instructor implementation against student tests
-    console.log(
-      `Running ${studentId}'s tests against instructor implementation...`
-    );
-    studentResult.studentTests = runTests(studentDir, false);
-
-    if (studentResult.studentTests.overall) {
+    if (result.studentTests.overall) {
       gradingReport.summary.passedStudentTests++;
     }
-
-    // Step 3: Collect personal art
-    console.log(`Collecting personal art from ${studentId}...`);
-    studentResult.personalArt = collectPersonalArt(studentDir);
-
-    if (!studentResult.personalArt.error) {
+    if (!result.personalArt.error) {
       gradingReport.summary.personalArtGenerationSuccess++;
     }
+  });
 
-    // Add student result to the report
-    gradingReport.students.push(studentResult);
+  // Calculate and set total time
+  const totalEndTime = Date.now();
+  if (gradingReport.timingInfo) {
+    gradingReport.timingInfo.totalTime = totalEndTime - totalStartTime;
   }
 
   // Generate grid layout of student art
-  console.log("\nGenerating grid layout visualization of student art...");
+  console.log("\nGenerating student art gallery...");
+  const studentsPerRow = 5;
+  const canvasWidth = 400;
+  const canvasHeight = 400;
+  const padding = 20;
+  const labelHeight = 30;
 
-  // Configuration for the grid layout
-  const canvasWidth = 400; // Increased individual canvas width
-  const canvasHeight = 400; // Increased individual canvas height
-  const padding = 20; // Padding between canvases
-  const studentsPerRow = 5; // Set to 5 students per row
-  const labelHeight = 30; // Height for student ID label
-
-  // Calculate the full grid dimensions
+  // Calculate layout dimensions
   const totalRows = Math.ceil(gradingReport.students.length / studentsPerRow);
   const fullWidth = studentsPerRow * (canvasWidth + padding) + padding;
   const fullHeight =
@@ -432,16 +537,15 @@ async function runAutograder(): Promise<void> {
 
   // Generate SVG elements for each student
   let svgElements = "";
-  let validStudentIndex = 0; // Separate index for students with valid art
+  let validStudentIndex = 0;
 
   gradingReport.students.forEach((student) => {
-    // Check for errors in personal art
+    // Skip students with art generation errors
     if (student.personalArt.error) {
-      console.log(`Skipping ${student.studentId} due to art generation error.`);
-      return; // Skip this student if there's an error
+      return;
     }
 
-    // Calculate position in the grid using validStudentIndex
+    // Calculate position in the grid
     const row = Math.floor(validStudentIndex / studentsPerRow);
     const col = validStudentIndex % studentsPerRow;
 
@@ -496,7 +600,7 @@ async function runAutograder(): Promise<void> {
       `;
     });
 
-    validStudentIndex++; // Increment the valid student index
+    validStudentIndex++;
   });
 
   // Create the HTML with SVG grid
@@ -522,12 +626,25 @@ async function runAutograder(): Promise<void> {
 
   saveHTMLToFile(gridHTML, "student_art_gallery.html");
 
+  // Create a simplified grading report without personalArt
+  const simplifiedReport = {
+    timestamp: gradingReport.timestamp,
+    students: gradingReport.students.map((student) => ({
+      studentId: student.studentId,
+      implementationTests: student.implementationTests,
+      studentTests: student.studentTests,
+      timeTaken: student.timeTaken,
+    })),
+    summary: gradingReport.summary,
+    timingInfo: gradingReport.timingInfo,
+  };
+
   // Save grading report
   const reportPath = path.join(process.cwd(), "grading_report.json");
-  fs.writeFileSync(reportPath, JSON.stringify(gradingReport, null, 2));
+  fs.writeFileSync(reportPath, JSON.stringify(simplifiedReport, null, 2));
   console.log(`Grading report saved to ${reportPath}`);
 
-  // Print summary
+  // Print summary statistics
   console.log("\nGrading Summary:");
   console.log(`Total Students: ${gradingReport.summary.totalStudents}`);
   console.log(
@@ -539,6 +656,27 @@ async function runAutograder(): Promise<void> {
   console.log(
     `Successful Art Generation: ${gradingReport.summary.personalArtGenerationSuccess}/${gradingReport.summary.totalStudents}`
   );
+
+  if (gradingReport.timingInfo) {
+    const totalMinutes = (
+      gradingReport.timingInfo.totalTime /
+      1000 /
+      60
+    ).toFixed(2);
+    console.log(`\nTotal time: ${totalMinutes} minutes`);
+
+    // Show the 5 slowest students
+    const sortedTimes = Object.entries(gradingReport.timingInfo.studentTimes)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    console.log(`\nSlowest 5 students:`);
+    sortedTimes.forEach(([studentId, time], index) => {
+      console.log(
+        `${index + 1}. ${studentId}: ${(time / 1000).toFixed(2)} seconds`
+      );
+    });
+  }
 
   // Open the grid art visualization
   console.log("\nOpening student art gallery visualization...");
