@@ -13,6 +13,12 @@ import {
   generateArtGallery,
   saveArtGallery,
 } from "./reporters/art-gallery-generator";
+import {
+  generateSimilarityHtml,
+  saveSimilarityReport,
+  printSimilaritySummary,
+} from "./reporters/similarity-reporter";
+import { analyzeSimilarity } from "./services/similarity/code-similarity";
 import { StudentResult } from "./types";
 
 const execAsync = promisify(exec);
@@ -71,7 +77,7 @@ async function importInstructorFunctions(): Promise<{
 /**
  * Main autograder function
  */
-async function runAutograder(): Promise<void> {
+export async function runAutograder(): Promise<void> {
   const totalStartTime = Date.now();
   console.log("Starting PS0 autograder...");
 
@@ -143,12 +149,73 @@ async function runAutograder(): Promise<void> {
   openHTML(galleryPath);
 }
 
-// Run the autograder if this file is executed directly
-if (require.main === module) {
-  runAutograder().catch((error) => {
-    console.error("Error running autograder:", error);
-    process.exit(1);
-  });
+/**
+ * Analyze code similarity between students
+ * @param similarityThreshold Threshold percentage for considering submissions similar (default: 80)
+ */
+export async function runSimilarityAnalysis(
+  similarityThreshold: number = 80
+): Promise<void> {
+  console.log("Starting PS0 code similarity analysis...");
+
+  // Discover student submissions
+  const submissionsDir = path.join(process.cwd(), "Submissions_auto");
+  const students = await fsUtils.discoverStudentSubmissions(submissionsDir);
+
+  // Analyze similarity between all students
+  const similarityReport = await analyzeSimilarity(
+    submissionsDir,
+    students,
+    similarityThreshold
+  );
+
+  // Generate and save similarity report
+  const htmlReport = generateSimilarityHtml(similarityReport);
+  const reportPath = await saveSimilarityReport(htmlReport);
+
+  // Print summary to console
+  printSimilaritySummary(similarityReport);
+
+  // Open the report
+  console.log("\nOpening similarity report visualization...");
+  // Import instructor functions to open HTML
+  const { openHTML } = await importInstructorFunctions();
+  openHTML(reportPath);
 }
 
-export { runAutograder };
+// Run the autograder if this file is executed directly
+if (require.main === module) {
+  const args = process.argv.slice(2);
+
+  // Check for similarity analysis command
+  if (args.includes("--similarity") || args.includes("-s")) {
+    const thresholdArg = args.find((arg) => arg.startsWith("--threshold="));
+    let threshold = 80; // Default threshold
+
+    if (thresholdArg) {
+      const thresholdValue = parseInt(thresholdArg.split("=")[1], 10);
+      if (
+        !isNaN(thresholdValue) &&
+        thresholdValue > 0 &&
+        thresholdValue <= 100
+      ) {
+        threshold = thresholdValue;
+      } else {
+        console.warn(
+          `Invalid threshold value. Using default threshold of 80%.`
+        );
+      }
+    }
+
+    runSimilarityAnalysis(threshold).catch((error) => {
+      console.error("Error running similarity analysis:", error);
+      process.exit(1);
+    });
+  } else {
+    // Run regular autograder
+    runAutograder().catch((error) => {
+      console.error("Error running autograder:", error);
+      process.exit(1);
+    });
+  }
+}
