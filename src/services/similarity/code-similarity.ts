@@ -27,6 +27,18 @@ export interface SimilarityReport {
   averageSimilarity: number;
   earlyExit: boolean;
   perfectMatch?: { student1: string; student2: string };
+  defaultImplementations?: {
+    [studentId: string]: string[]; // List of function names that match default implementation
+  };
+}
+
+/**
+ * Interface for default implementation detection result
+ */
+export interface DefaultImplementationResult {
+  studentId: string;
+  defaultFunctions: string[]; // List of function names matching default implementation
+  wholeCopyPaste: boolean;
 }
 
 /**
@@ -164,6 +176,21 @@ async function compareFile(
 }
 
 /**
+ * Extract a specific function from a source file
+ * @param sourceCode Complete source code
+ * @param functionName Name of the function to extract
+ * @returns Function body or empty string if not found
+ */
+function extractFunction(sourceCode: string, functionName: string): string {
+  const functionPattern = new RegExp(
+    `export\\s+function\\s+${functionName}\\s*\\([^)]*\\)\\s*(?::\\s*[^{]*)?{([^}]*)}`,
+    "s"
+  );
+  const match = sourceCode.match(functionPattern);
+  return match ? match[1].trim() : "";
+}
+
+/**
  * Reads and compares files from two student directories
  * @param submissionsDir Base directory containing all submissions
  * @param student1 First student ID
@@ -248,6 +275,111 @@ export async function compareStudents(
       },
     };
   }
+}
+
+/**
+ * Compare student's implementation with instructor's default implementation
+ * @param submissionsDir Base directory containing submissions
+ * @param studentId Student ID
+ * @returns List of functions that match the default implementation
+ */
+export async function checkDefaultImplementation(
+  submissionsDir: string,
+  studentId: string
+): Promise<DefaultImplementationResult> {
+  const rootDir = process.cwd();
+  const instructorFile = path.join(
+    rootDir,
+    "instructor",
+    "src",
+    "turtlesoup.ts"
+  );
+  const studentFile = path.join(
+    submissionsDir,
+    studentId,
+    "src",
+    "turtlesoup.ts"
+  );
+
+  // Functions to check
+  const functionsToCheck = [
+    "drawSquare",
+    "chordLength",
+    "drawApproximateCircle",
+    "distance",
+    "findPath",
+    "drawPersonalArt",
+  ];
+
+  // Read both files
+  const [instructorCode, studentCode] = await Promise.all([
+    readFileContent(instructorFile),
+    readFileContent(studentFile),
+  ]);
+
+  if (!instructorCode || !studentCode) {
+    return { studentId, defaultFunctions: [], wholeCopyPaste: false };
+  }
+
+  // First check overall file similarity
+  const jaccardFileSimilarity = calculateJaccardSimilarity(
+    instructorCode,
+    studentCode
+  );
+  const levenshteinFileSimilarity = calculateLevenshteinSimilarity(
+    instructorCode,
+    studentCode
+  );
+  const overallFileSimilarity =
+    jaccardFileSimilarity * 0.7 + levenshteinFileSimilarity * 0.3;
+
+  // If the entire file is extremely similar (>95%), mark all functions as default
+  if (overallFileSimilarity > 0.95) {
+    console.log(
+      `WARNING: Student ${studentId} file is ${Math.round(
+        overallFileSimilarity * 100
+      )}% similar to instructor file!`
+    );
+    return {
+      studentId,
+      defaultFunctions: functionsToCheck,
+      wholeCopyPaste: true,
+    };
+  }
+
+  // Extract and compare each function
+  const defaultFunctions: string[] = [];
+
+  for (const funcName of functionsToCheck) {
+    const instructorFunc = extractFunction(instructorCode, funcName);
+    const studentFunc = extractFunction(studentCode, funcName);
+
+    if (instructorFunc && studentFunc) {
+      // Calculate similarity
+      const jaccardScore = calculateJaccardSimilarity(
+        instructorFunc,
+        studentFunc
+      );
+      const levenshteinScore = calculateLevenshteinSimilarity(
+        instructorFunc,
+        studentFunc
+      );
+
+      // Weighted similarity score
+      const similarity = jaccardScore * 0.7 + levenshteinScore * 0.3;
+
+      // If similarity is above 0.9 (90%), consider it unchanged from default
+      if (similarity > 0.9) {
+        defaultFunctions.push(funcName);
+      }
+    }
+  }
+
+  return {
+    studentId,
+    defaultFunctions,
+    wholeCopyPaste: false,
+  };
 }
 
 /**
@@ -378,6 +510,32 @@ export async function analyzeSimilarity(
     .filter((result) => result.similarity >= similarityThreshold)
     .sort((a, b) => b.similarity - a.similarity);
 
+  // Check default implementations for all students
+  console.log("Checking for default implementations...");
+  const defaultImplementationResults = await Promise.all(
+    students.map((student) =>
+      checkDefaultImplementation(submissionsDir, student)
+    )
+  );
+
+  // Filter to only students with default implementations
+  const defaultImplementations: { [studentId: string]: string[] } = {};
+  defaultImplementationResults.forEach((result) => {
+    if (result.defaultFunctions.length > 0) {
+      defaultImplementations[result.studentId] = result.defaultFunctions;
+    }
+  });
+
+  // Log summary of default implementations
+  const studentsWithDefaults = Object.keys(defaultImplementations).length;
+  if (studentsWithDefaults > 0) {
+    console.log(
+      `Found ${studentsWithDefaults} students with default implementations.`
+    );
+  } else {
+    console.log("No students with default implementations found.");
+  }
+
   console.log(
     earlyExitFound
       ? `Analysis stopped early after finding a 100% match. Found ${highSimilarityPairs.length} high-similarity pairs.`
@@ -391,5 +549,6 @@ export async function analyzeSimilarity(
     averageSimilarity,
     earlyExit: earlyExitFound,
     perfectMatch: perfectMatchPair,
+    defaultImplementations,
   };
 }

@@ -76,10 +76,75 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
     averageSimilarity,
     earlyExit,
     perfectMatch,
+    defaultImplementations,
   } = report;
 
   // Filter to just get each student's highest similarity match
   const highestSimilarities = findHighestSimilarities(highSimilarityPairs);
+
+  let defaultImplementationsHtml = "";
+  if (
+    defaultImplementations &&
+    Object.keys(defaultImplementations).length > 0
+  ) {
+    // Check if any students have wholeCopyPaste flag
+    const wholeCopyPasteStudents = Object.entries(defaultImplementations)
+      .filter(([, funcs]) => funcs.length >= 5)
+      .map(([id]) => id);
+
+    let wholeCopyPasteHtml = "";
+    if (wholeCopyPasteStudents.length > 0) {
+      wholeCopyPasteHtml = `
+        <div class="alert alert-danger mb-4">
+          <h4 class="alert-heading">⚠️ Students who submitted instructor's default file</h4>
+          <p>The following students submitted code that is nearly identical to the instructor's starter file:</p>
+          <ul>
+            ${wholeCopyPasteStudents
+              .map((id) => `<li class="student-id">${id}</li>`)
+              .join("")}
+          </ul>
+          <p class="mb-0">These students receive 0 points as they did not complete the assignment.</p>
+        </div>
+      `;
+    }
+
+    defaultImplementationsHtml = `
+      <h2>Students Using Default Implementations</h2>
+      ${wholeCopyPasteHtml}
+      <div class="card">
+        <table class="similarity-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Default Functions</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.entries(defaultImplementations)
+              .map(
+                ([studentId, functions]) => `
+                <tr>
+                  <td class="student-id">${studentId}</td>
+                  <td class="default-functions">${functions.join(", ")}</td>
+                  <td class="${
+                    functions.length >= 5 ? "bg-danger text-white" : ""
+                  }">
+                    ${
+                      functions.length >= 5
+                        ? "Unmodified Default File (0 points)"
+                        : "Partially Modified"
+                    }
+                  </td>
+                </tr>
+              `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   // Create HTML for high similarity pairs (using the highest similarities per student)
   let highSimilarityHtml = "";
@@ -99,7 +164,7 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
       <div class="alert alert-warning">
         <p><strong>Note:</strong> This table shows each student's highest similarity match to another student. 
         High similarity may indicate academic integrity concerns, but can also result from 
-        starter code or common solutions. Manual review recommended.</p>
+        starter code or common solutions.</p>
       </div>
       <table class="table table-striped table-hover">
         <thead>
@@ -215,6 +280,73 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
         .bg-similarity-medium { background-color: #ffc107; color: black; }
         .bg-similarity-low { background-color: #20c997; color: black; }
         .bg-similarity-very-low { background-color: #198754; color: white; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        h1, h2, h3 {
+          color: #2c3e50;
+        }
+        .card {
+          background: white;
+          border-radius: 5px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+          margin-bottom: 20px;
+          padding: 20px;
+        }
+        .similarity-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .similarity-table th, .similarity-table td {
+          padding: 12px 15px;
+          text-align: left;
+          border-bottom: 1px solid #ddd;
+        }
+        .similarity-table th {
+          background-color: #f2f2f2;
+          font-weight: bold;
+        }
+        .similarity-table tr:hover {
+          background-color: #f5f5f5;
+        }
+        .similarity-match {
+          color: ${earlyExit ? "#e74c3c" : "#e67e22"};
+          font-weight: bold;
+        }
+        .perfect-match {
+          color: #e74c3c;
+          font-weight: bold;
+        }
+        .student-id {
+          font-family: monospace;
+        }
+        .similarity-value {
+          font-weight: bold;
+          width: 80px;
+        }
+        .info-box {
+          background-color: ${earlyExit ? "#fadbd8" : "#fef9e7"};
+          border-left: 5px solid ${earlyExit ? "#e74c3c" : "#f39c12"};
+          padding: 15px;
+          margin-bottom: 20px;
+        }
+        .timestamp {
+          color: #7f8c8d;
+          font-style: italic;
+          margin-bottom: 20px;
+        }
+        .details-list {
+          margin: 0;
+          padding-left: 20px;
+        }
+        .default-functions {
+          color: #c0392b;
+        }
       </style>
     </head>
     <body>
@@ -304,6 +436,8 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
           <p class="mb-0"><strong>Note:</strong> This is an automated analysis tool and should be used as a starting point for investigation,
           not as definitive evidence of academic dishonesty.</p>
         </div>
+
+        ${defaultImplementationsHtml}
       </div>
       
       <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
@@ -345,8 +479,13 @@ export async function saveSimilarityReport(
  * @param report The similarity report
  */
 export function printSimilaritySummary(report: SimilarityReport): void {
-  const { highSimilarityPairs, averageSimilarity, earlyExit, perfectMatch } =
-    report;
+  const {
+    highSimilarityPairs,
+    averageSimilarity,
+    earlyExit,
+    perfectMatch,
+    defaultImplementations,
+  } = report;
 
   console.log("\n=== Similarity Analysis Summary ===");
 
@@ -376,6 +515,37 @@ export function printSimilaritySummary(report: SimilarityReport): void {
 
     if (highestSimilarities.length > 5) {
       console.log(`... and ${highestSimilarities.length - 5} more pairs.`);
+    }
+  }
+
+  if (defaultImplementations) {
+    const defaultCount = Object.keys(defaultImplementations).length;
+    if (defaultCount > 0) {
+      // Count students with 5+ default functions (instructor file submissions)
+      const wholeCopyCount = Object.values(defaultImplementations).filter(
+        (funcs) => funcs.length >= 5
+      ).length;
+
+      console.log(`Students with default implementations: ${defaultCount}`);
+      if (wholeCopyCount > 0) {
+        console.log(
+          `⚠️ Students who submitted instructor's default file: ${wholeCopyCount}`
+        );
+      }
+
+      // Show top 5 students with most default implementations
+      const topDefaults = Object.entries(defaultImplementations)
+        .sort((a, b) => b[1].length - a[1].length)
+        .slice(0, 5);
+
+      console.log("\nTop students with default implementations:");
+      for (const [student, funcs] of topDefaults) {
+        console.log(
+          `  - ${student}: ${funcs.length} functions (${funcs.join(", ")})${
+            funcs.length >= 5 ? " - UNMODIFIED DEFAULT FILE" : ""
+          }`
+        );
+      }
     }
   }
 

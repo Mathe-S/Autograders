@@ -64,6 +64,25 @@ export interface StudentSimilarityInfo {
 }
 
 /**
+ * Function implementation status
+ */
+export interface FunctionImplementationStatus {
+  name: string;
+  implemented: boolean;
+  points: number;
+  isDefaultImplementation?: boolean; // Flag to track if function is a default implementation
+}
+
+/**
+ * Overall implementation status for a student
+ */
+export interface ImplementationStatus {
+  functionStatus: FunctionImplementationStatus[];
+  totalPointsDeduction: number;
+  implementationSummary: string;
+}
+
+/**
  * Result for a single student
  */
 export interface StudentResult {
@@ -71,6 +90,7 @@ export interface StudentResult {
   implementationTests: TestResult;
   studentTests: StudentTestResult;
   personalArt: PersonalArtResult;
+  implementationStatus: ImplementationStatus;
 }
 
 /**
@@ -83,6 +103,7 @@ export interface ProcessedStudentResult {
   implementationTests: TestResult;
   studentTests: StudentTestResult;
   personalArt: PersonalArtResult;
+  implementationStatus: ImplementationStatus;
   similarityInfo?: StudentSimilarityInfo;
   points: number; // Assignment points (0-30)
 }
