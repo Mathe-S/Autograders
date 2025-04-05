@@ -4,3 +4,4 @@ Submissions_auto
 assignment_submissions.csv
 failed_submissions_log.txt
 submissions/
+dist/
