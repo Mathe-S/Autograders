@@ -26,6 +26,17 @@ export async function collectPersonalArt(studentDir: string): Promise<{
     // Set up the necessary files
     const rootDir = process.cwd();
 
+    // Check if student's turtlesoup.ts exists
+    const studentTurtlesoupPath = path.join(studentDir, "src", "turtlesoup.ts");
+    const studentTurtlesoupExists = await fsUtils.fileExists(
+      studentTurtlesoupPath
+    );
+    if (!studentTurtlesoupExists) {
+      throw new Error(
+        `Student turtlesoup.ts not found at ${studentTurtlesoupPath}`
+      );
+    }
+
     // Copy the instructor's turtle.ts and the student's turtlesoup.ts
     await fsUtils.copyFile(
       path.join(rootDir, "instructor/src", "turtle.ts"),
@@ -33,46 +44,104 @@ export async function collectPersonalArt(studentDir: string): Promise<{
     );
 
     await fsUtils.copyFile(
-      path.join(studentDir, "src", "turtlesoup.ts"),
+      studentTurtlesoupPath,
       path.join(tmpArtDir, "turtlesoup.ts")
     );
 
-    // Create a wrapper script that will execute drawPersonalArt and extract the path
+    // Create a wrapper script with better error handling
     const wrapperContent = `
       import { SimpleTurtle } from './turtle';
-      import { drawPersonalArt } from './turtlesoup';
       import * as fs from 'fs';
-
-      // Create turtle, execute art function, and save the path
-      (function() {
-        try {
-          const turtle = new SimpleTurtle();
-          drawPersonalArt(turtle);
-          const pathData = JSON.stringify(turtle.getPath());
-          fs.writeFileSync('path.json', pathData);
-        } catch (error) {
-          console.error('Error generating art:', error);
+      
+      // Wrap in a try-catch to handle import errors
+      try {
+        // First check if drawPersonalArt exists in the imported module
+        const turtlesoup = require('./turtlesoup');
+        
+        if (typeof turtlesoup.drawPersonalArt !== 'function') {
+          console.error('Error: drawPersonalArt function not found in turtlesoup.ts');
+          fs.writeFileSync('error.txt', 'drawPersonalArt function not found in turtlesoup.ts');
           process.exit(1);
         }
-      })();
+        
+        // Execute the function
+        try {
+          const turtle = new SimpleTurtle();
+          turtlesoup.drawPersonalArt(turtle);
+          const pathData = JSON.stringify(turtle.getPath());
+          fs.writeFileSync('path.json', pathData);
+        } catch (error: any) {
+          console.error('Error executing drawPersonalArt:', error);
+          fs.writeFileSync('error.txt', 'Error executing drawPersonalArt: ' + (error.message || String(error)));
+          process.exit(1);
+        }
+      } catch (importError: any) {
+        console.error('Error importing turtlesoup module:', importError);
+        fs.writeFileSync('error.txt', 'Error importing turtlesoup module: ' + (importError.message || String(importError)));
+        process.exit(1);
+      }
     `;
 
     await fsUtils.writeFile(path.join(tmpArtDir, "wrapper.ts"), wrapperContent);
 
-    // Execute the wrapper
-    await execAsync(`cd ${tmpArtDir} && npx ts-node wrapper.ts`, {
-      timeout: 10000, // 10 second timeout
-    });
+    // Execute the wrapper with extended timeout
+    try {
+      await execAsync(
+        `cd ${tmpArtDir} && npx ts-node --transpile-only wrapper.ts`,
+        {
+          timeout: 15000, // 15 second timeout (increased from 10)
+        }
+      );
+    } catch (execError) {
+      // Check if error.txt was created with more detailed error info
+      const errorFilePath = path.join(tmpArtDir, "error.txt");
+      if (await fsUtils.fileExists(errorFilePath)) {
+        const errorDetails = await fsUtils.readFile(errorFilePath);
+        throw new Error(`Art execution error: ${errorDetails}`);
+      }
+      throw execError;
+    }
 
     // Read the path data
     const pathDataPath = path.join(tmpArtDir, "path.json");
-    const pathData = JSON.parse(await fsUtils.readFile(pathDataPath));
+    if (!(await fsUtils.fileExists(pathDataPath))) {
+      throw new Error("Path data file was not created");
+    }
 
-    // Clean up
-    await fsUtils.removeDirectory(tmpArtDir);
+    const pathDataRaw = await fsUtils.readFile(pathDataPath);
+    if (!pathDataRaw || pathDataRaw.trim() === "") {
+      throw new Error("Path data file is empty");
+    }
 
-    return { pathData };
+    try {
+      const pathData = JSON.parse(pathDataRaw);
+
+      // Check if pathData is valid
+      if (!Array.isArray(pathData)) {
+        throw new Error("Path data is not an array");
+      }
+
+      if (pathData.length === 0) {
+        console.warn(
+          `Warning: Student ${path.basename(
+            studentDir
+          )} has empty art (no path data)`
+        );
+      }
+
+      // Clean up
+      await fsUtils.removeDirectory(tmpArtDir);
+
+      return { pathData };
+    } catch (parseError: any) {
+      throw new Error(`Failed to parse path data: ${parseError.message}`);
+    }
   } catch (error: any) {
+    // Log specific error for this student
+    console.error(
+      `Error collecting art for ${path.basename(studentDir)}: ${error.message}`
+    );
+
     // Clean up if possible
     try {
       await fsUtils.removeDirectory(tmpArtDir);

@@ -4,7 +4,17 @@ export interface Point {
   y: number;
 }
 
-export type Color = string;
+export type Color =
+  | "black"
+  | "red"
+  | "green"
+  | "blue"
+  | "yellow"
+  | "purple"
+  | "orange"
+  | "cyan"
+  | "magenta"
+  | "white";
 
 /**
  * Type definitions for test results
@@ -18,7 +28,7 @@ export interface TestResult {
 }
 
 /**
- * Type definitions for coverage results
+ * Coverage result from c8
  */
 export interface CoverageResult {
   lines: number;
@@ -28,40 +38,77 @@ export interface CoverageResult {
 }
 
 /**
- * Type definitions for student test results
+ * Student test result with coverage information
  */
-export interface StudentTestResult extends TestResult {
+export interface StudentTestResult {
+  overall: boolean;
+  details: { [testName: string]: boolean };
   coverage?: CoverageResult;
+  errors?: string;
 }
 
 /**
- * Type definitions for student-specific results
+ * Personal art generation result
+ */
+export interface PersonalArtResult {
+  pathData: { start: Point; end: Point; color: Color }[];
+  error?: string;
+}
+
+/**
+ * Similarity information for a student
+ */
+export interface StudentSimilarityInfo {
+  otherStudent: string;
+  similarity: number;
+}
+
+/**
+ * Result for a single student
  */
 export interface StudentResult {
   studentId: string;
   implementationTests: TestResult;
   studentTests: StudentTestResult;
-  personalArt: {
-    pathData: { start: Point; end: Point; color: Color }[];
-    error?: string;
-  };
+  personalArt: PersonalArtResult;
 }
 
 /**
- * Type definitions for overall grading report
+ * Processed student result with status and similarity info
+ */
+export interface ProcessedStudentResult {
+  studentId: string;
+  status: "passed"; // Only using passed status now that we're skipping implementation tests
+  notes: string[];
+  implementationTests: TestResult;
+  studentTests: StudentTestResult;
+  personalArt: PersonalArtResult;
+  similarityInfo?: StudentSimilarityInfo;
+  points: number; // Assignment points (0-30)
+}
+
+/**
+ * Status counts in the grading report
+ */
+export interface StatusCounts {
+  passed: number;
+  failed: number;
+  errors: number;
+  unknown: number;
+}
+
+/**
+ * Complete grading report format
  */
 export interface GradingReport {
   timestamp: string;
-  students: StudentResult[];
-  summary: {
-    totalStudents: number;
-    passedImplementationTests: number;
-    passedStudentTests: number;
-    personalArtGenerationSuccess: number;
-    averageCoverage?: CoverageResult;
-  };
-  timingInfo?: {
-    totalTime: number;
-    studentTimes: { [studentId: string]: number };
-  };
+  totalStudents: number;
+  statusCounts: StatusCounts;
+  passingPercentage: number;
+  executionTimeSeconds: number;
+  averageCoverage?: CoverageResult;
+  students: ProcessedStudentResult[];
+  highSimilarityCount?: number;
+  totalPoints: number;
+  averagePoints: number;
 }

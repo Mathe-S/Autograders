@@ -13,7 +13,7 @@ export interface SimilarityResult {
   similarity: number; // Percentage of similarity (0-100)
   details?: {
     turtlesoupSimilarity: number;
-    testSimilarity: number;
+    testSimilarity?: number; // Make test similarity optional since we're not using it
   };
 }
 
@@ -175,11 +175,8 @@ export async function compareStudents(
   student1: string,
   student2: string
 ): Promise<SimilarityResult> {
-  // Paths to compare - excluding turtle.ts as requested
-  const filesToCompare = [
-    { path: "src/turtlesoup.ts", weight: 1 },
-    // { path: "test/turtlesoupTest.ts", weight: 0.3 },
-  ];
+  // Only compare turtlesoup.ts file - no weighting needed since it's the only file
+  const filesToCompare = [{ path: "src/turtlesoup.ts", weight: 1 }];
 
   try {
     // Compare all files in parallel
@@ -234,7 +231,7 @@ export async function compareStudents(
       similarity: overallSimilarity,
       details: {
         turtlesoupSimilarity: details.turtlesoupSimilarity || 0,
-        testSimilarity: details.turtlesoupTestSimilarity || 0,
+        // No testSimilarity since we're not comparing test files
       },
     };
   } catch (error) {
@@ -248,7 +245,6 @@ export async function compareStudents(
       similarity: 0,
       details: {
         turtlesoupSimilarity: 0,
-        testSimilarity: 0,
       },
     };
   }

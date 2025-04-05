@@ -149,8 +149,6 @@ async function setupStudentTestsEnvironment(
     throw new Error("Student test file does not exist");
   }
 
-  console.log(`Found student test file at ${studentTestPath}`);
-
   // Fix imports in the student test file
   const testContent = (await fsUtils.readFile(studentTestPath))
     .replace(/from ["']\.\.\/src\/turtlesoup["']/g, 'from "./turtlesoup"')

@@ -14,7 +14,7 @@ const mkdirAsync = promisify(fs.mkdir);
  * @param comparisons All similarity comparisons
  * @returns Array of each student's highest similarity match
  */
-function findHighestSimilarities(
+export function findHighestSimilarities(
   comparisons: SimilarityResult[]
 ): SimilarityResult[] {
   // Get unique students
@@ -123,7 +123,6 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
               <td>
                 <ul class="mb-0">
                   <li>turtlesoup.ts: ${pair.details?.turtlesoupSimilarity}%</li>
-                  <li>test: ${pair.details?.testSimilarity}%</li>
                 </ul>
               </td>
             </tr>
@@ -300,7 +299,7 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
           <h4 class="alert-heading">About This Analysis</h4>
           <p>This similarity analysis uses a combination of Jaccard similarity and Levenshtein distance algorithms to compare code structure
           and content while ignoring comments, whitespace, and variable name differences.</p>
-          <p>Files analyzed: <code>turtlesoup.ts</code> (70%), <code>turtlesoupTest.ts</code> (30%)</p>
+          <p>Files analyzed: <code>turtlesoup.ts</code> (100%)</p>
           <hr>
           <p class="mb-0"><strong>Note:</strong> This is an automated analysis tool and should be used as a starting point for investigation,
           not as definitive evidence of academic dishonesty.</p>

@@ -18,11 +18,6 @@ export async function discoverStudentSubmissions(
       .filter((dirent) => dirent.isDirectory())
       .map((dirent) => dirent.name);
 
-    console.log(
-      `Found ${studentDirs.length} student submissions: ${studentDirs.join(
-        ", "
-      )}`
-    );
     return studentDirs;
   } catch (error) {
     console.error("Error discovering student submissions:", error);

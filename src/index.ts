@@ -17,11 +17,15 @@ import {
   generateSimilarityHtml,
   saveSimilarityReport,
   printSimilaritySummary,
+  findHighestSimilarities,
 } from "./reporters/similarity-reporter";
 import { analyzeSimilarity } from "./services/similarity/code-similarity";
 import { StudentResult } from "./types";
 
 const execAsync = promisify(exec);
+
+const SUBMISSIONS_DIR = path.join(process.cwd(), "Submissions_auto");
+// const SUBMISSIONS_DIR = path.join(process.cwd(), "submissions");
 
 /**
  * Import necessary functions from the instructor's turtlesoup.ts or provide fallback
@@ -85,8 +89,7 @@ export async function runAutograder(): Promise<void> {
   const { openHTML } = await importInstructorFunctions();
 
   // Discover student submissions
-  const submissionsDir = path.join(process.cwd(), "Submissions_auto");
-  const students = await fsUtils.discoverStudentSubmissions(submissionsDir);
+  const students = await fsUtils.discoverStudentSubmissions(SUBMISSIONS_DIR);
 
   // Process students in parallel with progress logging
   console.log(`Processing ${students.length} students in parallel...`);
@@ -113,7 +116,7 @@ export async function runAutograder(): Promise<void> {
 
     // Process all students in this batch concurrently
     const batchResults = await Promise.all(
-      batch.map((studentId) => processStudent(studentId, submissionsDir))
+      batch.map((studentId) => processStudent(studentId, SUBMISSIONS_DIR))
     );
 
     results.push(...batchResults);
@@ -127,12 +130,31 @@ export async function runAutograder(): Promise<void> {
     );
   }
 
-  // Calculate total time
-  const totalEndTime = Date.now();
-  const totalTime = totalEndTime - totalStartTime;
+  // Calculate total time for grading
+  const gradingEndTime = Date.now();
+  const gradingTime = gradingEndTime - totalStartTime;
 
-  // Generate grading report
-  const gradingReport = generateGradingReport(results, totalTime);
+  // Perform similarity analysis
+  console.log("\nAnalyzing code similarity...");
+  // Use a lower threshold of 70% for detecting similar submissions
+  const similarityThreshold = 70;
+  const similarityReport = await analyzeSimilarity(
+    SUBMISSIONS_DIR,
+    students,
+    similarityThreshold
+  );
+
+  // Get highest similarity for each student
+  const highestSimilarities = findHighestSimilarities(
+    similarityReport.highSimilarityPairs
+  );
+
+  // Generate grading report (including similarity info)
+  const gradingReport = generateGradingReport(
+    results,
+    gradingTime,
+    similarityReport.highSimilarityPairs
+  );
 
   // Generate and save student art gallery
   const galleryHtml = await generateArtGallery(gradingReport.students);
@@ -147,6 +169,11 @@ export async function runAutograder(): Promise<void> {
   // Open the grid art visualization
   console.log("\nOpening student art gallery visualization...");
   openHTML(galleryPath);
+
+  // Calculate total time including similarity analysis
+  const totalEndTime = Date.now();
+  const totalTime = totalEndTime - totalStartTime;
+  console.log(`\nTotal execution time: ${(totalTime / 1000).toFixed(1)}s`);
 }
 
 /**
@@ -159,12 +186,11 @@ export async function runSimilarityAnalysis(
   console.log("Starting PS0 code similarity analysis...");
 
   // Discover student submissions
-  const submissionsDir = path.join(process.cwd(), "Submissions_auto");
-  const students = await fsUtils.discoverStudentSubmissions(submissionsDir);
+  const students = await fsUtils.discoverStudentSubmissions(SUBMISSIONS_DIR);
 
   // Analyze similarity between all students
   const similarityReport = await analyzeSimilarity(
-    submissionsDir,
+    SUBMISSIONS_DIR,
     students,
     similarityThreshold
   );
