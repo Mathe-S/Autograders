@@ -4,6 +4,7 @@
   "description": "Autograder for Problem Set 0",
   "main": "autograde.js",
   "scripts": {
+    "fetch-data": "node submittionFetcher.js",
     "autograde": "ts-node autograde.ts",
     "test": "mocha -r ts-node/register **/*Test.ts"
   },

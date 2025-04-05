@@ -31,7 +31,6 @@ interface StudentResult {
     pathData: { start: Point; end: Point; color: Color }[];
     error?: string;
   };
-  timeTaken?: number; // Time taken to grade this student in milliseconds
 }
 
 interface GradingReport {
@@ -326,6 +325,8 @@ async function collectPersonalArt(studentDir: string): Promise<{
 }> {
   const tmpArtDir = path.join(studentDir, "tmp_art");
 
+  console.log(`Collecting personal art for ${studentDir}`);
+
   try {
     // Clean up the entire tmp directory first
     try {
@@ -413,8 +414,9 @@ async function processStudent(
   studentId: string,
   submissionsDir: string
 ): Promise<StudentResult> {
-  const startTime = Date.now();
   const studentDir = path.join(submissionsDir, studentId);
+
+  console.log(`Processing student ${studentId} in directory ${studentDir}`);
 
   // Initialize student result
   const studentResult: StudentResult = {
@@ -430,7 +432,6 @@ async function processStudent(
     personalArt: {
       pathData: [],
     },
-    timeTaken: 0,
   };
 
   try {
@@ -450,10 +451,6 @@ async function processStudent(
     studentResult.studentTests.errors = error.message;
     studentResult.personalArt.error = error.message;
   }
-
-  // Calculate time taken
-  const endTime = Date.now();
-  studentResult.timeTaken = endTime - startTime;
 
   return studentResult;
 }
@@ -531,10 +528,6 @@ async function runAutograder(): Promise<void> {
   // Add results to the grading report
   results.forEach((result) => {
     gradingReport.students.push(result);
-    if (gradingReport.timingInfo) {
-      gradingReport.timingInfo.studentTimes[result.studentId] =
-        result.timeTaken || 0;
-    }
 
     // Update summary statistics
     if (result.implementationTests.overall) {
@@ -666,7 +659,6 @@ async function runAutograder(): Promise<void> {
       studentId: student.studentId,
       implementationTests: student.implementationTests,
       studentTests: student.studentTests,
-      timeTaken: student.timeTaken,
     })),
     summary: gradingReport.summary,
     timingInfo: gradingReport.timingInfo,
