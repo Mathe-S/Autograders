@@ -26,6 +26,12 @@ interface StudentResult {
       [testName: string]: boolean;
     };
     errors?: string;
+    coverage?: {
+      lines: number;
+      statements: number;
+      functions: number;
+      branches: number;
+    };
   };
   personalArt: {
     pathData: { start: Point; end: Point; color: Color }[];
@@ -41,6 +47,12 @@ interface GradingReport {
     passedImplementationTests: number;
     passedStudentTests: number;
     personalArtGenerationSuccess: number;
+    averageCoverage?: {
+      lines: number;
+      statements: number;
+      functions: number;
+      branches: number;
+    };
   };
   timingInfo?: {
     totalTime: number;
@@ -116,6 +128,12 @@ async function runTests(
   overall: boolean;
   details: { [testName: string]: boolean };
   errors?: string;
+  coverage?: {
+    lines: number;
+    statements: number;
+    functions: number;
+    branches: number;
+  };
 }> {
   // Prepare the environment for testing with a unique directory for each operation
   const tmpTestDir = path.join(studentDir, `tmp_${operation}`);
@@ -135,6 +153,7 @@ async function runTests(
     try {
       if (useInstructorTests) {
         // Test student implementation against instructor tests
+        console.log(`Setting up instructor tests environment in ${tmpTestDir}`);
         await fsPromises.symlink(
           path.join(process.cwd(), "instructor/src", "turtle.ts"),
           path.join(tmpTestDir, "turtle.ts")
@@ -159,11 +178,15 @@ async function runTests(
         );
       } else {
         // Test instructor implementation against student tests
-        await fsPromises.symlink(
+        console.log(`Setting up student tests environment in ${tmpTestDir}`);
+
+        // This time we'll create fresh files instead of symlinks
+        // First, copy the instructor's implementation
+        await fsPromises.copyFile(
           path.join(process.cwd(), "instructor/src", "turtle.ts"),
           path.join(tmpTestDir, "turtle.ts")
         );
-        await fsPromises.symlink(
+        await fsPromises.copyFile(
           path.join(process.cwd(), "instructor/src", "turtlesoup.ts"),
           path.join(tmpTestDir, "turtlesoup.ts")
         );
@@ -176,7 +199,9 @@ async function runTests(
         );
         try {
           await fsPromises.access(studentTestPath);
+          console.log(`Found student test file at ${studentTestPath}`);
         } catch {
+          console.log(`Student test file not found at ${studentTestPath}`);
           return {
             overall: false,
             details: {},
@@ -184,14 +209,15 @@ async function runTests(
           };
         }
 
-        // For the test file, we need to create a modified copy because we need to fix imports
+        // Read and fix the student's test file
         const testContent = (
           await fsPromises.readFile(studentTestPath, "utf-8")
         )
-          .replace(/from "\.\.\/src\/turtlesoup"/g, 'from "./turtlesoup"')
-          .replace(/from "\.\/turtlesoup"/g, 'from "./turtlesoup"')
-          .replace(/from "\.\.\/src\/turtle"/g, 'from "./turtle"')
-          .replace(/from "\.\/turtle"/g, 'from "./turtle"');
+          .replace(/from ["']\.\.\/src\/turtlesoup["']/g, 'from "./turtlesoup"')
+          .replace(/from ["']\.\/turtlesoup["']/g, 'from "./turtlesoup"')
+          .replace(/from ["']\.\.\/src\/turtle["']/g, 'from "./turtle"')
+          .replace(/from ["']\.\/turtle["']/g, 'from "./turtle"');
+
         await fsPromises.writeFile(
           path.join(tmpTestDir, "turtlesoupTest.ts"),
           testContent
@@ -209,15 +235,56 @@ async function runTests(
 
     // Run the tests directly using project dependencies
     try {
-      const cmd = `cd ${tmpTestDir} && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json`;
+      let cmd: string;
+      if (useInstructorTests) {
+        cmd = `cd ${tmpTestDir} && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json`;
+      } else {
+        // Use c8 to collect coverage data for student tests
+        // Run c8 and mocha separately to avoid mixing outputs
+        // First run coverage to generate coverage data
+        cmd = `cd ${tmpTestDir} && npx c8 --include=turtlesoup.ts --reporter=json --reporter=text --report-dir=coverage mocha -r ts-node/register turtlesoupTest.ts > /dev/null 2> c8_output.txt && npx mocha -r ts-node/register turtlesoupTest.ts --reporter json > mocha_output.json 2>&1 || echo "Tests completed with errors" >> c8_output.txt`;
+      }
+
       const { stdout: output } = await execAsync(cmd, {
         maxBuffer: 1024 * 1024, // Increase buffer size to 1MB
         timeout: 15000, // 15 second timeout
       });
 
+      // For student tests, check the mocha output file
+      let mochaOutput = output;
+      if (!useInstructorTests) {
+        try {
+          // Try to read the saved mocha output
+          const mochaOutputPath = path.join(tmpTestDir, "mocha_output.json");
+          if (
+            await fsPromises
+              .access(mochaOutputPath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
+            mochaOutput = await fsPromises.readFile(mochaOutputPath, "utf-8");
+            console.log(`Read Mocha output from file: ${mochaOutputPath}`);
+          }
+
+          // Log c8 output for debugging
+          const c8OutputPath = path.join(tmpTestDir, "c8_output.txt");
+          if (
+            await fsPromises
+              .access(c8OutputPath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
+            const c8Output = await fsPromises.readFile(c8OutputPath, "utf-8");
+            console.log(`C8 output: ${c8Output}`);
+          }
+        } catch (e) {
+          console.warn(`Error reading output files: ${e}`);
+        }
+      }
+
       // Parse the JSON output from Mocha
       try {
-        const results = JSON.parse(output);
+        const results = JSON.parse(mochaOutput);
         const testResults: { [testName: string]: boolean } = {};
         let allPassed = true;
 
@@ -237,11 +304,198 @@ async function runTests(
           }
         }
 
+        // If we're running student tests with coverage, check if coverage data was generated
+        if (!useInstructorTests) {
+          try {
+            const coverageFilePath = path.join(
+              tmpTestDir,
+              "coverage",
+              "coverage-final.json"
+            );
+            if (
+              await fsPromises
+                .access(coverageFilePath)
+                .then(() => true)
+                .catch(() => false)
+            ) {
+              const coverageData = JSON.parse(
+                await fsPromises.readFile(coverageFilePath, "utf-8")
+              );
+
+              // Extract coverage metrics
+              let totalStatements = 0;
+              let coveredStatements = 0;
+              let totalBranches = 0;
+              let coveredBranches = 0;
+              let totalFunctions = 0;
+              let coveredFunctions = 0;
+              let totalLines = 0;
+              let coveredLines = 0;
+
+              // Process coverage data for each file
+              for (const filePath in coverageData) {
+                if (filePath.includes("turtlesoup.ts")) {
+                  const fileCoverage = coverageData[filePath];
+
+                  // Statements
+                  totalStatements += Object.keys(
+                    fileCoverage.statementMap
+                  ).length;
+                  coveredStatements += Object.values(fileCoverage.s).filter(
+                    (v) => (v as number) > 0
+                  ).length;
+
+                  // Branches
+                  totalBranches +=
+                    Object.keys(fileCoverage.branchMap).length * 2;
+                  coveredBranches += Object.values(fileCoverage.b)
+                    .flat()
+                    .filter((v) => (v as number) > 0).length;
+
+                  // Functions
+                  totalFunctions += Object.keys(fileCoverage.fnMap).length;
+                  coveredFunctions += Object.values(fileCoverage.f).filter(
+                    (v) => (v as number) > 0
+                  ).length;
+
+                  // Lines
+                  totalLines += Object.keys(
+                    fileCoverage.lineMap || fileCoverage.statementMap
+                  ).length;
+                  coveredLines += Object.values(
+                    fileCoverage.l || fileCoverage.s
+                  ).filter((v) => (v as number) > 0).length;
+                }
+              }
+
+              // Calculate percentages
+              return {
+                overall: allPassed && Object.keys(testResults).length > 0,
+                details: testResults,
+                coverage: {
+                  statements:
+                    totalStatements > 0
+                      ? Math.round((coveredStatements / totalStatements) * 100)
+                      : 0,
+                  branches:
+                    totalBranches > 0
+                      ? Math.round((coveredBranches / totalBranches) * 100)
+                      : 0,
+                  functions:
+                    totalFunctions > 0
+                      ? Math.round((coveredFunctions / totalFunctions) * 100)
+                      : 0,
+                  lines:
+                    totalLines > 0
+                      ? Math.round((coveredLines / totalLines) * 100)
+                      : 0,
+                },
+              };
+            }
+          } catch (coverageError) {
+            console.warn(`Error parsing coverage data: ${coverageError}`);
+            // Continue without coverage data if there's an error
+          }
+        }
+
         return {
           overall: allPassed && Object.keys(testResults).length > 0,
           details: testResults,
         };
       } catch (parseError: any) {
+        // Even if we can't parse the test results, try to get coverage data
+        if (!useInstructorTests) {
+          try {
+            const coverageFilePath = path.join(
+              tmpTestDir,
+              "coverage",
+              "coverage-final.json"
+            );
+            if (
+              await fsPromises
+                .access(coverageFilePath)
+                .then(() => true)
+                .catch(() => false)
+            ) {
+              const coverageData = JSON.parse(
+                await fsPromises.readFile(coverageFilePath, "utf-8")
+              );
+
+              // Extract coverage metrics
+              let totalStatements = 0;
+              let coveredStatements = 0;
+              let totalBranches = 0;
+              let coveredBranches = 0;
+              let totalFunctions = 0;
+              let coveredFunctions = 0;
+              let totalLines = 0;
+              let coveredLines = 0;
+
+              // Process coverage data for each file
+              for (const filePath in coverageData) {
+                if (filePath.includes("turtlesoup.ts")) {
+                  const fileCoverage = coverageData[filePath];
+
+                  // Statements
+                  totalStatements += Object.keys(
+                    fileCoverage.statementMap
+                  ).length;
+                  coveredStatements += Object.values(fileCoverage.s).filter(
+                    (v) => (v as number) > 0
+                  ).length;
+
+                  // Branches
+                  totalBranches +=
+                    Object.keys(fileCoverage.branchMap).length * 2;
+                  coveredBranches += Object.values(fileCoverage.b)
+                    .flat()
+                    .filter((v) => (v as number) > 0).length;
+
+                  // Functions
+                  totalFunctions += Object.keys(fileCoverage.fnMap).length;
+                  coveredFunctions += Object.values(fileCoverage.f).filter(
+                    (v) => (v as number) > 0
+                  ).length;
+
+                  // Lines
+                  totalLines += Object.keys(
+                    fileCoverage.lineMap || fileCoverage.statementMap
+                  ).length;
+                  coveredLines += Object.values(
+                    fileCoverage.l || fileCoverage.s
+                  ).filter((v) => (v as number) > 0).length;
+                }
+              }
+
+              return {
+                overall: false,
+                details: {},
+                errors: `Error parsing test results: ${parseError.message}`,
+                coverage: {
+                  statements:
+                    totalStatements > 0
+                      ? Math.round((coveredStatements / totalStatements) * 100)
+                      : 0,
+                  branches:
+                    totalBranches > 0
+                      ? Math.round((coveredBranches / totalBranches) * 100)
+                      : 0,
+                  functions:
+                    totalFunctions > 0
+                      ? Math.round((coveredFunctions / totalFunctions) * 100)
+                      : 0,
+                  lines:
+                    totalLines > 0
+                      ? Math.round((coveredLines / totalLines) * 100)
+                      : 0,
+                },
+              };
+            }
+          } catch (coverageError) {
+            console.warn(`Error parsing coverage data: ${coverageError}`);
+          }
+        }
+
         return {
           overall: false,
           details: {},
@@ -275,6 +529,102 @@ async function runTests(
             }
           }
 
+          // Try to get coverage data even on test failures
+          if (!useInstructorTests) {
+            try {
+              const coverageFilePath = path.join(
+                tmpTestDir,
+                "coverage",
+                "coverage-final.json"
+              );
+              if (
+                await fsPromises
+                  .access(coverageFilePath)
+                  .then(() => true)
+                  .catch(() => false)
+              ) {
+                const coverageData = JSON.parse(
+                  await fsPromises.readFile(coverageFilePath, "utf-8")
+                );
+
+                // Extract coverage metrics (similar to above)
+                let totalStatements = 0;
+                let coveredStatements = 0;
+                let totalBranches = 0;
+                let coveredBranches = 0;
+                let totalFunctions = 0;
+                let coveredFunctions = 0;
+                let totalLines = 0;
+                let coveredLines = 0;
+
+                for (const filePath in coverageData) {
+                  if (filePath.includes("turtlesoup.ts")) {
+                    const fileCoverage = coverageData[filePath];
+
+                    // Statements
+                    totalStatements += Object.keys(
+                      fileCoverage.statementMap
+                    ).length;
+                    coveredStatements += Object.values(fileCoverage.s).filter(
+                      (v) => (v as number) > 0
+                    ).length;
+
+                    // Branches
+                    totalBranches +=
+                      Object.keys(fileCoverage.branchMap).length * 2;
+                    coveredBranches += Object.values(fileCoverage.b)
+                      .flat()
+                      .filter((v) => (v as number) > 0).length;
+
+                    // Functions
+                    totalFunctions += Object.keys(fileCoverage.fnMap).length;
+                    coveredFunctions += Object.values(fileCoverage.f).filter(
+                      (v) => (v as number) > 0
+                    ).length;
+
+                    // Lines
+                    totalLines += Object.keys(
+                      fileCoverage.lineMap || fileCoverage.statementMap
+                    ).length;
+                    coveredLines += Object.values(
+                      fileCoverage.l || fileCoverage.s
+                    ).filter((v) => (v as number) > 0).length;
+                  }
+                }
+
+                return {
+                  overall: false,
+                  details: testResults,
+                  errors: cmdError.message,
+                  coverage: {
+                    statements:
+                      totalStatements > 0
+                        ? Math.round(
+                            (coveredStatements / totalStatements) * 100
+                          )
+                        : 0,
+                    branches:
+                      totalBranches > 0
+                        ? Math.round((coveredBranches / totalBranches) * 100)
+                        : 0,
+                    functions:
+                      totalFunctions > 0
+                        ? Math.round((coveredFunctions / totalFunctions) * 100)
+                        : 0,
+                    lines:
+                      totalLines > 0
+                        ? Math.round((coveredLines / totalLines) * 100)
+                        : 0,
+                  },
+                };
+              }
+            } catch (coverageError) {
+              console.warn(
+                `Error parsing coverage data after test failure: ${coverageError}`
+              );
+            }
+          }
+
           return {
             overall: false,
             details: testResults,
@@ -291,6 +641,33 @@ async function runTests(
         errors: cmdError.message,
       };
     } finally {
+      // Copy coverage data to a persistent location if it exists
+      if (!useInstructorTests) {
+        try {
+          const coverageDir = path.join(tmpTestDir, "coverage");
+          const studentCoverageDir = path.join(studentDir, "coverage");
+
+          if (
+            await fsPromises
+              .access(coverageDir)
+              .then(() => true)
+              .catch(() => false)
+          ) {
+            // Ensure student coverage directory exists
+            await fsPromises.mkdir(studentCoverageDir, { recursive: true });
+
+            // Copy the coverage-final.json file
+            await fsPromises.copyFile(
+              path.join(coverageDir, "coverage-final.json"),
+              path.join(studentCoverageDir, "coverage-final.json")
+            );
+          }
+        } catch (e) {
+          // Ignore errors when copying coverage data
+          console.warn(`Could not copy coverage data: ${e}`);
+        }
+      }
+
       // Clean up
       try {
         await fsPromises.rm(tmpTestDir, { recursive: true, force: true });
@@ -541,6 +918,32 @@ async function runAutograder(): Promise<void> {
     }
   });
 
+  // Calculate average coverage metrics
+  let totalLines = 0;
+  let totalStatements = 0;
+  let totalFunctions = 0;
+  let totalBranches = 0;
+  let coverageCount = 0;
+
+  gradingReport.students.forEach((student) => {
+    if (student.studentTests.coverage) {
+      totalLines += student.studentTests.coverage.lines;
+      totalStatements += student.studentTests.coverage.statements;
+      totalFunctions += student.studentTests.coverage.functions;
+      totalBranches += student.studentTests.coverage.branches;
+      coverageCount++;
+    }
+  });
+
+  if (coverageCount > 0) {
+    gradingReport.summary.averageCoverage = {
+      lines: Math.round(totalLines / coverageCount),
+      statements: Math.round(totalStatements / coverageCount),
+      functions: Math.round(totalFunctions / coverageCount),
+      branches: Math.round(totalBranches / coverageCount),
+    };
+  }
+
   // Calculate and set total time
   const totalEndTime = Date.now();
   if (gradingReport.timingInfo) {
@@ -685,6 +1088,19 @@ async function runAutograder(): Promise<void> {
     `Successful Art Generation: ${gradingReport.summary.personalArtGenerationSuccess}/${gradingReport.summary.totalStudents}`
   );
 
+  // Print coverage summary if available
+  if (gradingReport.summary.averageCoverage) {
+    console.log("\nAverage Test Coverage:");
+    console.log(`Lines: ${gradingReport.summary.averageCoverage.lines}%`);
+    console.log(
+      `Statements: ${gradingReport.summary.averageCoverage.statements}%`
+    );
+    console.log(
+      `Functions: ${gradingReport.summary.averageCoverage.functions}%`
+    );
+    console.log(`Branches: ${gradingReport.summary.averageCoverage.branches}%`);
+  }
+
   if (gradingReport.timingInfo) {
     const totalMinutes = (
       gradingReport.timingInfo.totalTime /
@@ -692,18 +1108,6 @@ async function runAutograder(): Promise<void> {
       60
     ).toFixed(2);
     console.log(`\nTotal time: ${totalMinutes} minutes`);
-
-    // Show the 5 slowest students
-    const sortedTimes = Object.entries(gradingReport.timingInfo.studentTimes)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-
-    console.log(`\nSlowest 5 students:`);
-    sortedTimes.forEach(([studentId, time], index) => {
-      console.log(
-        `${index + 1}. ${studentId}: ${(time / 1000).toFixed(2)} seconds`
-      );
-    });
   }
 
   // Open the grid art visualization
