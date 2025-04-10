@@ -6,12 +6,12 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "dist",
+    "outDir": "PS0-autograder/dist",
     "resolveJsonModule": true,
-    "rootDir": "src",
+    "rootDir": "PS0-autograder/src",
     "sourceMap": true,
     "declaration": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["PS0-autograder/src/**/*.ts"],
+  "exclude": ["node_modules", "PS0-autograder/dist"]
 }

@@ -165,6 +165,7 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
         <p><strong>Note:</strong> This table shows each student's highest similarity match to another student. 
         High similarity may indicate academic integrity concerns, but can also result from 
         starter code or common solutions.</p>
+        <p><strong>Policy:</strong> Students with ≥95% similarity automatically receive 0 points due to academic integrity concerns.</p>
       </div>
       <table class="table table-striped table-hover">
         <thead>
@@ -173,6 +174,7 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
             <th>Student 2</th>
             <th>Similarity</th>
             <th>Details</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -180,7 +182,11 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
             .map(
               (pair) => `
             <tr class="${
-              pair.similarity >= 90 ? "table-danger" : "table-warning"
+              pair.similarity >= 95
+                ? "table-danger"
+                : pair.similarity >= 90
+                ? "table-warning"
+                : ""
             }">
               <td>${pair.student1}</td>
               <td>${pair.student2}</td>
@@ -189,6 +195,13 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
                 <ul class="mb-0">
                   <li>turtlesoup.ts: ${pair.details?.turtlesoupSimilarity}%</li>
                 </ul>
+              </td>
+              <td>
+                ${
+                  pair.similarity >= 95
+                    ? '<span class="badge bg-danger">0 points - Academic Integrity</span>'
+                    : ""
+                }
               </td>
             </tr>
           `
@@ -355,6 +368,12 @@ export function generateSimilarityHtml(report: SimilarityReport): string {
         <p class="text-muted">Generated: ${new Date(
           timestamp
         ).toLocaleString()}</p>
+        
+        <div class="alert alert-danger">
+          <h4 class="alert-heading">⚠️ Academic Integrity Policy</h4>
+          <p>Students with code similarity of <strong>95% or higher</strong> automatically receive <strong>0 points</strong> for the assignment.</p>
+          <p class="mb-0">Both students in a high-similarity pair are penalized equally unless there is clear evidence that only one student shared their code.</p>
+        </div>
         
         <div class="row">
           <div class="col-md-4">

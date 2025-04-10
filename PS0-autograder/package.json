@@ -4,7 +4,7 @@
   "description": "Autograder for Problem Set 0",
   "main": "dist/index.js",
   "scripts": {
-    "fetch-data": "node submittionFetcher.js",
+    "fetch-submissions": "node submittionFetcher.js",
     "build": "tsc",
     "autograde": "npm run build && node dist/index.js",
     "test": "mocha -r ts-node/register **/*Test.ts",

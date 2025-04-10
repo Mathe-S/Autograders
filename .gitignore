@@ -1,8 +1,8 @@
-node_modules
-grading_report.json
-Submissions_auto
-assignment_submissions.csv
-failed_submissions_log.txt
-submissions/
-dist/
-reports/
+**/node_modules
+**/grading_report.json
+**/Submissions_auto
+**/assignment_submissions.csv
+**/failed_submissions_log.txt
+**/submissions/
+**/dist/
+**/reports/

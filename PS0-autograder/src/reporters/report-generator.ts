@@ -164,7 +164,10 @@ export function generateGradingReport(
     if (
       result.implementationStatus.functionStatus.some((f) => !f.implemented)
     ) {
-      notes.push(result.implementationStatus.implementationSummary);
+      const deduction = result.implementationStatus.totalPointsDeduction;
+      notes.push(
+        `${result.implementationStatus.implementationSummary} (${deduction} points deducted)`
+      );
     } else {
       notes.push("All functions implemented correctly");
     }
@@ -182,13 +185,17 @@ export function generateGradingReport(
 
       if (defaultFunctionCount >= 5) {
         notes.push(
-          `WARNING: Student submitted instructor's default file with little to no changes (${defaultFunctions.join(
+          `WARNING: Student submitted instructor's default file with little to no changes. The following functions appear unchanged: ${defaultFunctions.join(
             ", "
-          )})`
+          )}. (30 points deducted)`
         );
       } else {
         notes.push(
-          `Default implementations detected: ${defaultFunctions.join(", ")}`
+          `Default implementations detected: ${defaultFunctions.join(
+            ", "
+          )}. These functions were not modified from the starter code. (${
+            defaultFunctionCount * 5
+          } points deducted)`
         );
       }
     }
@@ -262,23 +269,50 @@ export function generateGradingReport(
     const studentSimilarities =
       findHighestSimilaritiesPerStudent(highSimilarityPairs);
 
+    // Track high-similarity students that need all points deducted (similarity >= 95%)
+    const highSimilarityViolations = new Set<string>();
+
+    // First pass: identify all students with similarity >= 95%
+    for (const pair of highSimilarityPairs) {
+      if (pair.similarity >= 95) {
+        highSimilarityViolations.add(pair.student1);
+        highSimilarityViolations.add(pair.student2);
+      }
+    }
+
     // Add to processed results
     for (const result of processedResults) {
       const similarity = studentSimilarities.get(result.studentId);
+
+      // Check if this student is in the high similarity violations set
+      if (highSimilarityViolations.has(result.studentId)) {
+        result.notes.push(
+          `ACADEMIC INTEGRITY ALERT: Extremely high similarity (≥95%) detected with another student. All points deducted.`
+        );
+        // Deduct all points for extremely high similarity
+        result.points = 0;
+      }
+
       if (similarity) {
         result.similarityInfo = {
           otherStudent: similarity.otherStudent,
           similarity: similarity.similarity,
         };
 
-        // Add note about high similarity
-        if (similarity.similarity >= 90) {
+        // Add note about high similarity and handle penalties
+        if (similarity.similarity >= 95) {
           result.notes.push(
-            `ALERT: Very high similarity (${similarity.similarity}%) with ${similarity.otherStudent}`
+            `ACADEMIC INTEGRITY ALERT: Very high similarity (${similarity.similarity}%) with ${similarity.otherStudent}. All points deducted.`
+          );
+          // Deduct all points for extremely high similarity
+          result.points = 0;
+        } else if (similarity.similarity >= 90) {
+          result.notes.push(
+            `ALERT: Very high similarity (${similarity.similarity}%) with ${similarity.otherStudent}.`
           );
         } else if (similarity.similarity >= 80) {
           result.notes.push(
-            `High similarity (${similarity.similarity}%) with ${similarity.otherStudent}`
+            `Note: High similarity (${similarity.similarity}%) with ${similarity.otherStudent}. May be coincidental.`
           );
         }
       }
@@ -373,13 +407,51 @@ export async function saveGradingReport(
         ...essentialStudentInfo
       } = student;
 
-      // Include notes that explain point assignments (not just deductions)
-      const pointNotes = notes.filter((note) => note.includes("points:"));
+      // Keep important notes: point assignments, deductions, academic integrity, warnings
+      const importantNotes = notes.filter(
+        (note) =>
+          note.includes("points:") ||
+          note.includes("deduct") ||
+          note.includes("ACADEMIC INTEGRITY") ||
+          note.includes("WARNING") ||
+          note.includes("Default implementations") ||
+          note.includes("functions not implemented") ||
+          note.includes("implemented") ||
+          student.points < 30 // Always include notes for students with less than full points
+      );
+
+      // Add a clear summary note if points were deducted
+      if (student.points < 30) {
+        const deduction = 30 - student.points;
+        const hasDeductionNote = importantNotes.some(
+          (note) =>
+            note.includes("deduct") || note.includes("ACADEMIC INTEGRITY")
+        );
+
+        if (!hasDeductionNote) {
+          // Check if the implementation status has notes about missing functions
+          const missingFunctions = student.implementationStatus.functionStatus
+            .filter((f) => !f.implemented)
+            .map((f) => f.name);
+
+          if (missingFunctions.length > 0) {
+            importantNotes.push(
+              `Implementation issue: Missing or incorrect implementation of ${missingFunctions.join(
+                ", "
+              )} (${deduction} points deducted)`
+            );
+          } else {
+            importantNotes.push(
+              `Point summary: ${deduction} points deducted (final score: ${student.points}/30)`
+            );
+          }
+        }
+      }
 
       return {
         ...essentialStudentInfo,
-        // Include point-related notes for all students
-        ...(pointNotes.length > 0 ? { notes: pointNotes } : {}),
+        // Include all relevant notes for all students
+        notes: importantNotes,
       };
     }),
   };
@@ -460,9 +532,22 @@ export function printGradingSummary(report: GradingReport): void {
 
   // Add similarity summary
   if (report.highSimilarityCount !== undefined) {
+    // Count students with 0 points due to similarity penalties
+    const zeroPointsDueToSimilarity = report.students.filter(
+      (s) =>
+        s.points === 0 &&
+        s.notes.some((note) => note.includes("ACADEMIC INTEGRITY ALERT"))
+    ).length;
+
     console.log(
-      `\nSimilarity Analysis: ${report.highSimilarityCount} students with very high similarity (≥90%)`
+      `\nSimilarity Analysis: ${report.highSimilarityCount} high similarity pairs detected`
     );
+
+    if (zeroPointsDueToSimilarity > 0) {
+      console.log(
+        `- ${zeroPointsDueToSimilarity} students received 0 points due to extremely high similarity (≥95%)`
+      );
+    }
   }
 
   console.log("\nSee detailed reports in the reports directory.");
