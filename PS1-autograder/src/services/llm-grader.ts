@@ -6,6 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Type } from "@google/genai";
 import { PROBLEM_DESCRIPTION } from "../constants";
 import { TestResult, ImplementationStatus } from "../types";
+import { FUNCTIONS_TO_CHECK } from "../constants";
 
 const dotenv = require("dotenv");
 dotenv.config();
@@ -20,8 +21,8 @@ const readFileAsync = promisify(fs.readFile);
  * Uses Gemini 2.0 Flash to generate "manual" grading feedback as if from a lecturer to a student
  * @param studentId Student identifier
  * @param submissionsDir Directory containing submissions
- * @param instructorTestFile Path to instructor test file
- * @param instructorSolutionFile Path to instructor solution file (if available)
+ * @param instructorTestPath Path to instructor test file
+ * @param instructorSolutionPath Path to instructor solution file (if available)
  * @param studentTestResult Test result for the student
  * @param implementationStatus Implementation status for the student
  * @returns Manual-style grading results
@@ -70,31 +71,40 @@ export async function generateManualGrading(
       readFileAsync(studentTestFilePath, "utf8").catch(() => ""),
     ]);
 
-    // Extract computeProgress function from student code
-    const computeProgressCode = extractFunction(studentCode, "computeProgress");
+    // Extract each function from student code
+    const extractedFunctions: Record<string, string> = {};
+    for (const funcName of FUNCTIONS_TO_CHECK) {
+      extractedFunctions[funcName] = extractFunction(studentCode, funcName);
+    }
 
     // Get problem description
     const problemDescription = PROBLEM_DESCRIPTION;
 
-    // Extract computeProgress tests
-    const computeProgressTests = extractTestsForFunction(
-      instructorTests,
-      "computeProgress"
-    );
+    // Extract tests for each function
+    const extractedTests: Record<string, string> = {};
+    for (const funcName of FUNCTIONS_TO_CHECK) {
+      extractedTests[funcName] = extractTestsForFunction(
+        instructorTests,
+        funcName
+      );
+    }
 
-    // Extract student tests for computeProgress if available
-    const studentComputeProgressTests = extractTestsForFunction(
-      studentTests,
-      "computeProgress"
-    );
+    // Extract student tests for each function
+    const extractedStudentTests: Record<string, string> = {};
+    for (const funcName of FUNCTIONS_TO_CHECK) {
+      extractedStudentTests[funcName] = extractTestsForFunction(
+        studentTests,
+        funcName
+      );
+    }
 
     // Prepare the prompt for the LLM
     const prompt = generatePersonalizedGradingPrompt(
       formattedName,
       problemDescription,
-      computeProgressCode,
-      computeProgressTests,
-      studentComputeProgressTests,
+      extractedFunctions,
+      extractedTests,
+      extractedStudentTests,
       studentTestResult,
       implementationStatus,
       studentCode
@@ -199,17 +209,25 @@ function extractTestsForFunction(
 function generatePersonalizedGradingPrompt(
   studentName: string,
   problemDescription: string,
-  computeProgressCode: string,
-  computeProgressTests: string,
-  studentComputeProgressTests: string = "",
+  extractedFunctions: Record<string, string>,
+  extractedTests: Record<string, string>,
+  extractedStudentTests: Record<string, string> = {},
   studentTestResult?: TestResult,
   implementationStatus?: ImplementationStatus,
   studentCode?: string
 ): string {
   // Build information about student's own tests if available
-  const studentTestInfo = studentComputeProgressTests
-    ? `\nSTUDENT'S OWN TESTS:\n\`\`\`typescript\n${studentComputeProgressTests}\n\`\`\`\n`
-    : "\nSTUDENT DID NOT IMPLEMENT TESTS FOR COMPUTE_PROGRESS";
+  const studentTestInfo =
+    Object.entries(extractedStudentTests)
+      .filter(([_, test]) => test.trim() !== "")
+      .map(
+        ([funcName, test]) =>
+          `\nSTUDENT'S OWN TESTS FOR ${funcName.toUpperCase()}:
+\`\`\`typescript
+${test}
+\`\`\``
+      )
+      .join("\n") || "\nSTUDENT DID NOT IMPLEMENT ANY TESTS FOR FUNCTIONS";
 
   // Include automatic grading data to validate if available
   const studentGradingInfo = implementationStatus
@@ -251,9 +269,34 @@ ${studentCode}
 `
     : "";
 
+  // Create sections for each function to review
+  const functionsToReview = Object.entries(extractedFunctions)
+    .map(([funcName, code]) => {
+      if (!code || code.trim() === "") {
+        return `\n${funcName.toUpperCase()} FUNCTION:
+Not implemented or could not be extracted.
+
+TESTS FOR ${funcName.toUpperCase()}:
+\`\`\`typescript
+${extractedTests[funcName] || "No tests found"}
+\`\`\``;
+      }
+
+      return `\n${funcName.toUpperCase()} FUNCTION:
+\`\`\`typescript
+${code}
+\`\`\`
+
+TESTS FOR ${funcName.toUpperCase()}:
+\`\`\`typescript
+${extractedTests[funcName] || "No tests found"}
+\`\`\``;
+    })
+    .join("\n");
+
   return `
 You are guest lecturer Mate Sharvadze, a friendly and supportive computer science lecturer who personally knows each student. 
-You need to grade ${studentName}'s solution to the computeProgress function in the Flashcards assignment.
+You need to grade ${studentName}'s implementation of the Flashcards assignment.
 
 As you know ${studentName} personally, write your feedback in a conversational, encouraging tone while being honest about 
 areas for improvement. Your goal is to help ${studentName} grow as a programmer through constructive feedback.
@@ -262,16 +305,7 @@ PROBLEM DESCRIPTION:
 ${problemDescription}
 
 STUDENT'S WORK:
-${studentName} implemented the computeProgress function as follows:
-
-\`\`\`typescript
-${computeProgressCode}
-\`\`\`
-
-TESTS FOR THIS FUNCTION:
-\`\`\`typescript
-${computeProgressTests}
-\`\`\`
+${functionsToReview}
 ${studentTestInfo}
 ${studentGradingInfo}
 ${testResultDetails}
@@ -282,25 +316,29 @@ GRADING CRITERIA:
 2. Code quality (0-3 points): Is the code well-structured, readable, and maintainable?
 3. Error handling (0-2 points): Does the implementation handle edge cases appropriately?
 
-Additionally, give an overall grade for the entire assignment out of 40 points based on this function's quality.
+Additionally, give an overall grade for the entire assignment out of 40 points.
 
 VALIDATION TASK:
-Please review the automatic grading results provided (if any) and validate if they seem fair based on the code quality. If you notice any discrepancies, please mention them in your feedback.
+1. Please carefully review the automatic grading results provided above.
+2. Particularly, check if any functions were marked as "Not implemented" but actually have a reasonable implementation.
+3. The autograder deducts 5 points per unimplemented function. Verify if these deductions are fair.
+4. If you find cases where the autograder was incorrect, please emphasize this in your feedback.
 
 IMPORTANT:
-1. CAREFULLY REVIEW THE STUDENT'S COMPLETE CODE to ensure you understand the full implementation.
-2. The computeProgress function is the focus of your grading, but reviewing the complete file helps ensure you have proper context.
-3. Do not repeat information from strengths and weaknesses in the feedback text.
-4. Keep feedback concise but personalized.
-5. If you feel the automatic grading system made a mistake, highlight this in your feedback.
-6. Consider the student's tests (if provided) in your evaluation.
+1. CAREFULLY REVIEW ALL FUNCTIONS to verify the autograder results.
+2. Use a simple greeting like "Hi [Name]" instead of elaborate introductions.
+3. The computeProgress function is the main focus for detailed feedback, but review all functions.
+4. Do not repeat information from strengths and weaknesses in the feedback text.
+5. Keep feedback concise but personalized.
+6. If a function appears to be implemented but was marked as missing by the autograder, highlight this clearly.
+7. Consider the student's tests (if provided) in your evaluation.
 
 RESPONSE FORMAT:
 Respond in valid JSON format only, with the following structure:
 {
   "computeProgressScore": <score for computeProgress out of 10>,
   "overallScore": <overall score out of 40>,
-  "feedback": "<your personal, conversational feedback as Professor Mate to ${studentName}>",
+  "feedback": "<your personal, conversational feedback to ${studentName}>",
   "strengths": ["<strength 1>", "<strength 2>", ...],
   "weaknesses": ["<area for improvement 1>", "<area for improvement 2>", ...]
 }

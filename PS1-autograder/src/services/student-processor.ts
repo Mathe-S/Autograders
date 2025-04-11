@@ -2,14 +2,7 @@ import path from "path";
 import { ImplementationStatus, StudentResult } from "../types";
 import { runTests } from "./test-runner";
 import { generateManualGrading } from "./llm-grader";
-
-const FUNCTIONS_TO_CHECK = [
-  "toBucketSets",
-  "getBucketRange",
-  "practice",
-  "update",
-  "getHint",
-];
+import { FUNCTIONS_TO_CHECK } from "../constants";
 
 /**
  * Process a single student

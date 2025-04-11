@@ -218,3 +218,11 @@ Your spec should be safe from bugs, easy to understand, and ready for change. In
 Your spec must have a nontrivial and relevant precondition that cannot be statically checked. For example, for sqrt(x), the precondition x ≥ 0 is both nontrivial and relevant, whereas x !== NaN is trivial (if that’s the entire precondition), and x is even is not relevant.
 
 Your implementation must check the precondition and fail fast if the precondition is not satisfied.`;
+
+export const FUNCTIONS_TO_CHECK = [
+  "toBucketSets",
+  "getBucketRange",
+  "practice",
+  "update",
+  "getHint",
+];

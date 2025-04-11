@@ -75,24 +75,12 @@ export function generateGradingReport(
     if (result.manualGradingResult) {
       const manualResult = result.manualGradingResult;
 
-      // Add notes about manual grading
+      // Add notes about manual grading - just the score
       notes.push(
         `Lecturer's grading of computeProgress: ${manualResult.computeProgressScore}/10 points`
       );
 
-      // Add strengths identified
-      if (manualResult.strengths && manualResult.strengths.length > 0) {
-        notes.push(`Strengths: ${manualResult.strengths.join(", ")}`);
-      }
-
-      // Add areas for improvement
-      if (manualResult.weaknesses && manualResult.weaknesses.length > 0) {
-        notes.push(
-          `Areas for improvement: ${manualResult.weaknesses.join(", ")}`
-        );
-      }
-
-      // Add detailed feedback
+      // Add personalized feedback without repeating strengths and weaknesses
       notes.push(`Personalized feedback: ${manualResult.feedback}`);
 
       // Calculate total points including manual score

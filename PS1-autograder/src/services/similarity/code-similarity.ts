@@ -1,20 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
-
+import { FUNCTIONS_TO_CHECK } from "../../constants";
 const readFileAsync = promisify(fs.readFile);
 
 const FILES_TO_COMPARE = [{ path: "src/algorithm.ts", weight: 1 }];
 const MAIN_FILE = "algorithm.ts";
-
-const FUNCTIONS_TO_CHECK = [
-  "toBucketSets",
-  "getBucketRange",
-  "practice",
-  "update",
-  "getHint",
-  "computeProgress",
-];
 
 /**
  * Interface for similarity comparison result between two students
