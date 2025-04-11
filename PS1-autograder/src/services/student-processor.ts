@@ -70,7 +70,11 @@ export async function processStudent(
       try {
         const manualGradingResult = await generateManualGrading(
           studentId,
-          submissionsDir
+          submissionsDir,
+          undefined, // instructorTestPath
+          undefined, // instructorSolutionPath
+          studentResult.studentTests, // Pass student test results
+          studentResult.implementationStatus // Pass implementation status
         );
         studentResult.manualGradingResult = manualGradingResult;
         console.log(
