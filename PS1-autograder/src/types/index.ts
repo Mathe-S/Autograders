@@ -63,6 +63,17 @@ export interface ImplementationStatus {
 }
 
 /**
+ * Manual grading result from the "lecturer"
+ */
+export interface ManualGradingResult {
+  computeProgressScore: number; // Score for computeProgress function (0-10 points)
+  overallScore: number; // Overall score (0-40 points)
+  feedback: string; // Feedback for improvement
+  strengths: string[]; // Key strengths identified
+  weaknesses: string[]; // Areas for improvement
+}
+
+/**
  * Result for a single student
  */
 export interface StudentResult {
@@ -70,6 +81,7 @@ export interface StudentResult {
   implementationTests: TestResult;
   studentTests: StudentTestResult;
   implementationStatus: ImplementationStatus;
+  manualGradingResult?: ManualGradingResult; // Manual grading result from "lecturer"
 }
 
 /**
@@ -84,6 +96,8 @@ export interface ProcessedStudentResult {
   implementationStatus: ImplementationStatus;
   similarityInfo?: StudentSimilarityInfo;
   points: number; // Assignment points (0-30)
+  manualGradingResult?: ManualGradingResult; // Manual grading result from "lecturer"
+  totalPoints?: number; // Combined points from implementation and manual grading (0-40)
 }
 
 /**

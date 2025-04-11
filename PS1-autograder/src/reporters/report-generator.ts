@@ -70,6 +70,36 @@ export function generateGradingReport(
       }
     }
 
+    // Add LLM grading results if available
+    let totalPoints = points;
+    if (result.manualGradingResult) {
+      const manualResult = result.manualGradingResult;
+
+      // Add notes about manual grading
+      notes.push(
+        `Lecturer's grading of computeProgress: ${manualResult.computeProgressScore}/10 points`
+      );
+
+      // Add strengths identified
+      if (manualResult.strengths && manualResult.strengths.length > 0) {
+        notes.push(`Strengths: ${manualResult.strengths.join(", ")}`);
+      }
+
+      // Add areas for improvement
+      if (manualResult.weaknesses && manualResult.weaknesses.length > 0) {
+        notes.push(
+          `Areas for improvement: ${manualResult.weaknesses.join(", ")}`
+        );
+      }
+
+      // Add detailed feedback
+      notes.push(`Personalized feedback: ${manualResult.feedback}`);
+
+      // Calculate total points including manual score
+      // The implementation gets 30 points max, and manual grading adds up to 10 additional points
+      totalPoints = points + manualResult.computeProgressScore;
+    }
+
     // Add test errors if any
     if (result.implementationTests.errors) {
       notes.push(
@@ -80,15 +110,19 @@ export function generateGradingReport(
       notes.push(`Error in student tests: ${result.studentTests.errors}`);
     }
 
-    return {
+    const processedResult: ProcessedStudentResult = {
       studentId: result.studentId,
       status,
       notes,
       implementationTests: result.implementationTests,
       studentTests: result.studentTests,
       implementationStatus: result.implementationStatus,
-      points,
+      points, // Original points (0-30)
+      manualGradingResult: result.manualGradingResult,
+      totalPoints, // Combined points (0-40)
     };
+
+    return processedResult;
   });
 
   // Calculate coverage statistics if available
@@ -127,7 +161,10 @@ export function generateGradingReport(
   };
 
   // Calculate points
-  const totalPoints = processedResults.reduce((sum, r) => sum + r.points, 0);
+  const totalPoints = processedResults.reduce(
+    (sum, r) => sum + (r.totalPoints || r.points),
+    0
+  );
   const averagePoints = Math.round(
     totalPoints / (processedResults.length || 1)
   );
@@ -159,7 +196,7 @@ export function generateGradingReport(
           `ACADEMIC INTEGRITY ALERT: Extremely high similarity (≥95%) detected with another student. All points deducted.`
         );
         // Deduct all points for extremely high similarity
-        result.points = 0;
+        result.totalPoints = 0;
       }
 
       if (similarity) {
@@ -174,7 +211,7 @@ export function generateGradingReport(
             `ACADEMIC INTEGRITY ALERT: Very high similarity (${similarity.similarity}%) with ${similarity.otherStudent}. All points deducted.`
           );
           // Deduct all points for extremely high similarity
-          result.points = 0;
+          result.totalPoints = 0;
         } else if (similarity.similarity >= 90) {
           result.notes.push(
             `ALERT: Very high similarity (${similarity.similarity}%) with ${similarity.otherStudent}.`
@@ -363,49 +400,137 @@ export function printGradingSummary(report: GradingReport): void {
   );
   console.log(`Execution Time: ${report.executionTimeSeconds.toFixed(1)}s`);
 
-  // Calculate and display function implementation stats
-  const missingFuncs = new Map<string, number>();
-  report.students.forEach((student) => {
-    if (student.implementationStatus) {
-      student.implementationStatus.functionStatus
-        .filter((func: FunctionImplementationStatus) => !func.implemented)
-        .forEach((func: FunctionImplementationStatus) => {
-          missingFuncs.set(func.name, (missingFuncs.get(func.name) || 0) + 1);
-        });
+  // Count which functions most students couldn't implement
+  const functionCounts: Record<string, number> = {};
+  for (const student of report.students) {
+    for (const func of student.implementationStatus.functionStatus) {
+      if (!func.implemented) {
+        functionCounts[func.name] = (functionCounts[func.name] || 0) + 1;
+      }
     }
-  });
+  }
 
   console.log("\nFunction Implementation Stats:");
-  if (missingFuncs.size === 0) {
+  if (Object.keys(functionCounts).length === 0) {
     console.log("- All students implemented all functions");
   } else {
     console.log("Functions not implemented by # of students:");
-    Array.from(missingFuncs.entries())
-      .sort((a, b) => b[1] - a[1])
-      .forEach(([funcName, count]) => {
-        console.log(
-          `- ${funcName}: ${count} students (${Math.round(
-            (count / report.totalStudents) * 100
-          )}%)`
-        );
-      });
+    for (const [funcName, count] of Object.entries(functionCounts).sort(
+      (a, b) => b[1] - a[1]
+    )) {
+      console.log(
+        `- ${funcName}: ${count} students (${Math.round(
+          (count / report.totalStudents) * 100
+        )}%)`
+      );
+    }
   }
 
-  console.log(
-    `\nPoints Summary: Average ${report.averagePoints.toFixed(1)} / 30 points`
-  );
   // Count students by point ranges
-  const fullCreditCount = report.students.filter((s) => s.points === 30).length;
-  const partialCreditCount = report.students.filter(
-    (s) => s.points > 0 && s.points < 30
+  const fullCreditCount = report.students.filter(
+    (s) => (s.totalPoints || s.points) === 40
   ).length;
-  const noCreditCount = report.students.filter((s) => s.points === 0).length;
+  const partialCreditCount = report.students.filter(
+    (s) => (s.totalPoints || s.points) > 0 && (s.totalPoints || s.points) < 40
+  ).length;
+  const noCreditCount = report.students.filter(
+    (s) => (s.totalPoints || s.points) === 0
+  ).length;
 
-  console.log(`- ${fullCreditCount} students with full credit (30 points)`);
   console.log(
-    `- ${partialCreditCount} students with partial credit (1-29 points)`
+    `\nPoints Summary: Average ${report.averagePoints.toFixed(1)} / 40 points`
+  );
+  console.log(`- ${fullCreditCount} students with full credit (40 points)`);
+  console.log(
+    `- ${partialCreditCount} students with partial credit (1-39 points)`
   );
   console.log(`- ${noCreditCount} students with no credit (0 points)`);
+
+  // Check if any students got no credit due to high similarity
+  if (report.highSimilarityCount) {
+    const zeroPointsDueToSimilarity = report.students.filter(
+      (s) =>
+        (s.totalPoints || s.points) === 0 &&
+        s.notes.some((note) => note.includes("ACADEMIC INTEGRITY ALERT"))
+    ).length;
+    console.log(
+      `  (${zeroPointsDueToSimilarity} of these due to very high similarity)`
+    );
+  }
+
+  // Print manual grading stats if available
+  const studentsWithManualGrading = report.students.filter(
+    (s) => s.manualGradingResult
+  ).length;
+  if (studentsWithManualGrading > 0) {
+    console.log("\nPersonalized Grading Results:");
+
+    // Calculate average manual scores
+    const totalComputeProgressScore = report.students.reduce(
+      (sum, s) => sum + (s.manualGradingResult?.computeProgressScore || 0),
+      0
+    );
+    const avgComputeProgressScore =
+      totalComputeProgressScore / studentsWithManualGrading;
+
+    console.log(
+      `- Average computeProgress score: ${avgComputeProgressScore.toFixed(
+        1
+      )}/10 points`
+    );
+    console.log(
+      `- ${studentsWithManualGrading} students received personalized feedback (${Math.round(
+        (studentsWithManualGrading / report.totalStudents) * 100
+      )}% of total)`
+    );
+
+    // Most common strengths and weaknesses
+    const allStrengths: string[] = [];
+    const allWeaknesses: string[] = [];
+
+    report.students.forEach((s) => {
+      if (s.manualGradingResult?.strengths) {
+        allStrengths.push(...s.manualGradingResult.strengths);
+      }
+      if (s.manualGradingResult?.weaknesses) {
+        allWeaknesses.push(...s.manualGradingResult.weaknesses);
+      }
+    });
+
+    const strengthCounts: Record<string, number> = {};
+    const weaknessCounts: Record<string, number> = {};
+
+    allStrengths.forEach((s) => {
+      strengthCounts[s] = (strengthCounts[s] || 0) + 1;
+    });
+
+    allWeaknesses.forEach((w) => {
+      weaknessCounts[w] = (weaknessCounts[w] || 0) + 1;
+    });
+
+    // Display top 3 strengths and weaknesses
+    const topStrengths = Object.entries(strengthCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    const topWeaknesses = Object.entries(weaknessCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    if (topStrengths.length > 0) {
+      console.log("\nTop strengths identified by instructors:");
+      topStrengths.forEach(([strength, count]) => {
+        console.log(`- ${strength} (${count} students)`);
+      });
+    }
+
+    if (topWeaknesses.length > 0) {
+      console.log("\nTop areas for improvement identified by instructors:");
+      topWeaknesses.forEach(([weakness, count]) => {
+        console.log(`- ${weakness} (${count} students)`);
+      });
+    }
+  }
 
   if (report.averageCoverage) {
     console.log(
@@ -413,24 +538,10 @@ export function printGradingSummary(report: GradingReport): void {
     );
   }
 
-  // Add similarity summary
   if (report.highSimilarityCount !== undefined) {
-    // Count students with 0 points due to similarity penalties
-    const zeroPointsDueToSimilarity = report.students.filter(
-      (s) =>
-        s.points === 0 &&
-        s.notes.some((note) => note.includes("ACADEMIC INTEGRITY ALERT"))
-    ).length;
-
     console.log(
       `\nSimilarity Analysis: ${report.highSimilarityCount} high similarity pairs detected`
     );
-
-    if (zeroPointsDueToSimilarity > 0) {
-      console.log(
-        `- ${zeroPointsDueToSimilarity} students received 0 points due to extremely high similarity (≥95%)`
-      );
-    }
   }
 
   console.log("\nSee detailed reports in the reports directory.");

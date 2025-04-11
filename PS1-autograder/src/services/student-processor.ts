@@ -1,6 +1,7 @@
 import path from "path";
 import { ImplementationStatus, StudentResult } from "../types";
 import { runTests } from "./test-runner";
+import { generateManualGrading } from "./llm-grader";
 
 const FUNCTIONS_TO_CHECK = [
   "toBucketSets",
@@ -14,11 +15,13 @@ const FUNCTIONS_TO_CHECK = [
  * Process a single student
  * @param studentId Student identifier
  * @param submissionsDir Directory containing all submissions
+ * @param enableLLM Whether to use LLM grading (default: false)
  * @returns Student grading results
  */
 export async function processStudent(
   studentId: string,
-  submissionsDir: string
+  submissionsDir: string,
+  enableLLM: boolean = false
 ): Promise<StudentResult> {
   const studentDir = path.join(submissionsDir, studentId);
 
@@ -58,6 +61,29 @@ export async function processStudent(
     const implementationStatus =
       generateImplementationStatus(implementationTests);
     studentResult.implementationStatus = implementationStatus;
+
+    // Use LLM to generate personalized "manual" grading if enabled
+    if (enableLLM) {
+      console.log(
+        `Generating manual grading for ${studentId}'s computeProgress function...`
+      );
+      try {
+        const manualGradingResult = await generateManualGrading(
+          studentId,
+          submissionsDir
+        );
+        studentResult.manualGradingResult = manualGradingResult;
+        console.log(
+          `Manual grading complete for ${studentId}: ${manualGradingResult.computeProgressScore}/10`
+        );
+      } catch (llmError: any) {
+        console.error(
+          `Error during manual grading for ${studentId}:`,
+          llmError
+        );
+        // Don't let grading errors affect the rest of the process
+      }
+    }
 
     // Note: Default implementations will be marked separately by the similarity checker
   } catch (error: any) {

@@ -77,8 +77,12 @@ export async function runSimilarityAnalysis(
 /**
  * Main autograder function
  * @param targetStudent Optional student ID to grade only that specific student
+ * @param enableLLM Whether to use LLM for generating personalized "manual" grading (default: false)
  */
-export async function runAutograder(targetStudent?: string): Promise<void> {
+export async function runAutograder(
+  targetStudent?: string,
+  enableLLM: boolean = false
+): Promise<void> {
   const totalStartTime = Date.now();
   console.log("Starting PS1 autograder...");
 
@@ -140,7 +144,9 @@ export async function runAutograder(targetStudent?: string): Promise<void> {
 
     // Process all students in this batch concurrently
     const batchResults = await Promise.all(
-      batch.map((studentId) => processStudent(studentId, SUBMISSIONS_DIR))
+      batch.map((studentId) =>
+        processStudent(studentId, SUBMISSIONS_DIR, enableLLM)
+      )
     );
 
     results.push(...batchResults);
@@ -269,7 +275,12 @@ if (require.main === module) {
       if (!targetStudent)
         console.warn(`Empty student value provided. Grading all students.`);
     }
-    runAutograder(targetStudent).catch((error) => {
+
+    // Check if personalized grading is enabled
+    const enableLLM =
+      args.includes("--manual") || args.includes("--personal-feedback");
+
+    runAutograder(targetStudent, enableLLM).catch((error) => {
       console.error("Error running autograder:", error);
       process.exit(1);
     });
