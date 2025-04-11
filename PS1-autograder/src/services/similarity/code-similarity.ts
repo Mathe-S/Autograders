@@ -194,12 +194,18 @@ async function compareFile(
  * @returns Function body or empty string if not found
  */
 function extractFunction(sourceCode: string, functionName: string): string {
-  const functionPattern = new RegExp(
-    `export\\s+function\\s+${functionName}\\s*\\([^)]*\\)\\s*(?::\\s*[^{]*)?{([^}]*)}`,
-    "s"
+  // Look for the function definition
+  const functionRegex = new RegExp(
+    `export\\s+function\\s+${functionName}\\s*\\([^)]*\\)\\s*(?::\\s*[^{]*)?\\s*{([\\s\\S]*?)(?:}(?:\\s*\\n+|$))`,
+    "m"
   );
-  const match = sourceCode.match(functionPattern);
-  return match ? match[1].trim() : "";
+
+  const match = functionRegex.exec(sourceCode);
+  if (!match) return "";
+
+  // Extract the function body (everything between the curly braces)
+  const body = match[1].trim();
+  return body;
 }
 
 /**
@@ -345,7 +351,12 @@ export async function checkDefaultImplementation(
     const instructorFunc = extractFunction(instructorCode, funcName);
     const studentFunc = extractFunction(studentCode, funcName);
 
-    if (instructorFunc && studentFunc) {
+    // Skip functions where the instructor code just throws an error (stub implementation)
+    if (
+      instructorFunc &&
+      studentFunc &&
+      !instructorFunc.includes("throw new Error")
+    ) {
       // Calculate similarity
       const jaccardScore = calculateJaccardSimilarity(
         instructorFunc,

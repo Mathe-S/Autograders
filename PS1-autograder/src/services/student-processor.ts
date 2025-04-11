@@ -8,7 +8,6 @@ const FUNCTIONS_TO_CHECK = [
   "practice",
   "update",
   "getHint",
-  "computeProgress",
 ];
 
 /**

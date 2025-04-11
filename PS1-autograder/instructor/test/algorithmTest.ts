@@ -9,7 +9,6 @@ import {
   computeProgress,
 } from "../src/algorithm";
 import { expect } from "chai";
-import { createCard } from "../src/utils";
 
 /**
  * Testing Strategy for toBucketSets()
@@ -599,3 +598,12 @@ describe("getHint()", () => {
     );
   });
 });
+
+/**
+ *  Helper function to create test flashcards
+ * @param front
+ * @returns Flashcard
+ */
+export const createCard = (front: string): Flashcard => {
+  return new Flashcard(front, "back", "hint", []);
+};
