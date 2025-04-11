@@ -1,7 +1,6 @@
 import * as path from "path";
 import * as os from "os";
 import { exec } from "child_process";
-import { promisify } from "util";
 import * as fsUtils from "./utils/fs-utils";
 import { processStudent } from "./services/student-processor";
 import {
@@ -234,38 +233,6 @@ export async function runAutograder(targetStudent?: string): Promise<void> {
           studentResult.implementationStatus.totalPointsDeduction = deduction;
         }
       }
-    }
-  }
-
-  // Special case for beqakikutadze@gmail.com - check if there's an issue
-  const beqaResult = results.find(
-    (r) => r.studentId === "beqakikutadze@gmail.com"
-  );
-  if (beqaResult) {
-    // Log the implementation status for debugging
-    console.log("\nDebug implementation status for beqakikutadze@gmail.com:");
-    console.log(beqaResult.implementationStatus);
-    console.log("Implementation test results:");
-    console.log(beqaResult.implementationTests);
-
-    // Force fix if no implementations were detected
-    const unimplementedCount =
-      beqaResult.implementationStatus.functionStatus.filter(
-        (fs) => !fs.implemented
-      ).length;
-
-    if (unimplementedCount === 6) {
-      // All functions not implemented, likely a bug
-      console.log(
-        "Fixing implementation status for beqakikutadze@gmail.com - all functions were implemented"
-      );
-      for (const funcStatus of beqaResult.implementationStatus.functionStatus) {
-        funcStatus.implemented = true;
-        funcStatus.points = 0;
-      }
-      beqaResult.implementationStatus.totalPointsDeduction = 0;
-      beqaResult.implementationStatus.implementationSummary =
-        "All functions implemented (manually fixed)";
     }
   }
 
