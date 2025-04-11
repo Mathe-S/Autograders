@@ -21,6 +21,7 @@ import {
 } from "./reporters/similarity-reporter";
 import { analyzeSimilarity } from "./services/similarity/code-similarity";
 import { StudentResult } from "./types";
+import { defineSimilarityThreshold } from "./utils/define-similarity-threshold";
 
 const SUBMISSIONS_DIR = path.join(process.cwd(), "Submissions_auto");
 // const SUBMISSIONS_DIR = path.join(process.cwd(), "submissions");
@@ -334,23 +335,7 @@ if (require.main === module) {
 
   // Check for similarity analysis command
   if (args.includes("--similarity") || args.includes("-s")) {
-    const thresholdArg = args.find((arg) => arg.startsWith("--threshold="));
-    let threshold = 80; // Default threshold
-
-    if (thresholdArg) {
-      const thresholdValue = parseInt(thresholdArg.split("=")[1], 10);
-      if (
-        !isNaN(thresholdValue) &&
-        thresholdValue > 0 &&
-        thresholdValue <= 100
-      ) {
-        threshold = thresholdValue;
-      } else {
-        console.warn(
-          `Invalid threshold value. Using default threshold of 80%.`
-        );
-      }
-    }
+    const threshold = defineSimilarityThreshold(args);
 
     runSimilarityAnalysis(threshold).catch((error) => {
       console.error("Error running similarity analysis:", error);
