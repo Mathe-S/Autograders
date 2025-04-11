@@ -201,14 +201,14 @@ export function generateGradingReport(
     }
 
     // Add test errors if any
-    if (result.implementationTests.errors) {
-      notes.push(
-        `Error in implementation tests: ${result.implementationTests.errors}`
-      );
-    }
-    if (result.studentTests.errors) {
-      notes.push(`Error in student tests: ${result.studentTests.errors}`);
-    }
+    // if (result.implementationTests.errors) {
+    //   notes.push(
+    //     `Error in implementation tests: ${result.implementationTests.errors}`
+    //   );
+    // }
+    // if (result.studentTests.errors) {
+    //   notes.push(`Error in student tests: ${result.studentTests.errors}`);
+    // }
 
     return {
       studentId: result.studentId,

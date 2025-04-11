@@ -318,11 +318,22 @@ GRADING CRITERIA:
 
 Additionally, give an overall grade for the entire assignment out of 40 points.
 
+GRADING APPROACH:
+1. Be generous in your grading. If a function shows a reasonable attempt to implement the required functionality, 
+   consider it implemented even if it has minor issues or edge cases it doesn't handle perfectly.
+2. For each function that needs improvement, clearly explain what's missing and provide specific suggestions 
+   for how the student can improve it in a resubmission.
+3. For any points deducted, specify exactly why they were deducted and what would need to be fixed
+   to regain those points in a resubmission.
+4. Remember that students can resubmit their work, so focus on constructive guidance that will help them improve.
+
 VALIDATION TASK:
 1. Please carefully review the automatic grading results provided above.
 2. Particularly, check if any functions were marked as "Not implemented" but actually have a reasonable implementation.
 3. The autograder deducts 5 points per unimplemented function. Verify if these deductions are fair.
 4. If you find cases where the autograder was incorrect, please emphasize this in your feedback.
+5. Be particularly generous with the "getHint" function - if there's any reasonable attempt to implement it 
+   (even if flawed), consider it implemented.
 
 IMPORTANT:
 1. CAREFULLY REVIEW ALL FUNCTIONS to verify the autograder results.
@@ -332,6 +343,7 @@ IMPORTANT:
 5. Keep feedback concise but personalized.
 6. If a function appears to be implemented but was marked as missing by the autograder, highlight this clearly.
 7. Consider the student's tests (if provided) in your evaluation.
+8. For each weakness identified, provide a clear path to improvement with specific code suggestions.
 
 RESPONSE FORMAT:
 Respond in valid JSON format only, with the following structure:
@@ -340,7 +352,8 @@ Respond in valid JSON format only, with the following structure:
   "overallScore": <overall score out of 40>,
   "feedback": "<your personal, conversational feedback to ${studentName}>",
   "strengths": ["<strength 1>", "<strength 2>", ...],
-  "weaknesses": ["<area for improvement 1>", "<area for improvement 2>", ...]
+  "weaknesses": ["<area for improvement 1>", "<area for improvement 2>", ...],
+  "improvements": ["<specific improvement 1>", "<specific improvement 2>", ...]
 }
 `;
 }

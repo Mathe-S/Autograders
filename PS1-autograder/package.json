@@ -6,7 +6,8 @@
   "scripts": {
     "fetch-submissions": "node submittionFetcher.js",
     "build": "tsc",
-    "autograde": "npm run build && node dist/index.js",
+    "autograde": "npm run build && node dist/index.js ",
+    "autograde-llm": "npm run build && node dist/index.js --manual",
     "test": "mocha -r ts-node/register **/*Test.ts",
     "dev": "ts-node src/index.ts"
   },
