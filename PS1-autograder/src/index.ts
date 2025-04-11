@@ -237,6 +237,87 @@ export async function runAutograder(
     }
   }
 
+  // Update implementation status based on LLM feedback (if functions were incorrectly marked as not implemented)
+  if (enableLLM) {
+    console.log(
+      "\nChecking for incorrect implementation status based on LLM feedback..."
+    );
+
+    for (const result of results) {
+      // Skip if no manual grading was performed
+      if (!result.manualGradingResult) continue;
+
+      // Get the list of implemented functions as determined by the LLM
+      const llmImplementedFunctions =
+        result.manualGradingResult.implementedFunctions || [];
+
+      if (llmImplementedFunctions.length === 0) {
+        console.log(
+          `No implemented functions reported by LLM for ${result.studentId}`
+        );
+        continue;
+      }
+
+      console.log(
+        `LLM reports these functions as implemented for ${
+          result.studentId
+        }: ${llmImplementedFunctions.join(", ")}`
+      );
+
+      // Track if any implementation status was updated
+      let implementationUpdated = false;
+
+      // Check each function in the implementation status
+      for (const funcStatus of result.implementationStatus.functionStatus) {
+        const funcName = funcStatus.name;
+
+        // If the function is currently marked as not implemented but the LLM says it is implemented
+        if (
+          !funcStatus.implemented &&
+          llmImplementedFunctions.includes(funcName)
+        ) {
+          console.log(
+            `LLM determined that ${result.studentId}'s ${funcName} function is actually implemented. Updating status.`
+          );
+
+          // Update the implementation status
+          funcStatus.implemented = true;
+          implementationUpdated = true;
+        }
+      }
+
+      // If any functions were updated, recalculate the point deduction
+      if (implementationUpdated) {
+        // Count unimplemented functions
+        const unimplementedCount =
+          result.implementationStatus.functionStatus.filter(
+            (fs) => !fs.implemented
+          ).length;
+
+        // Update implementation summary
+        const notImplemented = result.implementationStatus.functionStatus
+          .filter((func) => !func.implemented)
+          .map((func) => func.name);
+
+        result.implementationStatus.implementationSummary =
+          notImplemented.length === 0
+            ? "All functions implemented"
+            : `Not implemented: ${notImplemented.join(", ")}`;
+
+        // Recalculate point deduction (5 points per unimplemented function, cap at 25)
+        const newDeduction = Math.min(unimplementedCount * 5, 25);
+        const oldDeduction = result.implementationStatus.totalPointsDeduction;
+
+        if (newDeduction !== oldDeduction) {
+          console.log(
+            `Updating point deduction for ${result.studentId} from ${oldDeduction} to ${newDeduction} based on LLM feedback`
+          );
+          result.implementationStatus.totalPointsDeduction = newDeduction;
+        }
+      }
+    }
+  }
+
   // Generate and save grading report (including similarity info)
   const gradingReport = generateGradingReport(
     results,

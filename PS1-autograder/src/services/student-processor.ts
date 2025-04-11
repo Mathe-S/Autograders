@@ -55,11 +55,26 @@ export async function processStudent(
       generateImplementationStatus(implementationTests);
     studentResult.implementationStatus = implementationStatus;
 
-    // Use LLM to generate personalized "manual" grading if enabled
-    if (enableLLM) {
-      console.log(
-        `Generating manual grading for ${studentId}'s computeProgress function...`
-      );
+    // Check if all or most functions are default implementations
+    const defaultFunctionCount = implementationStatus.functionStatus.filter(
+      (fs) => fs.isDefaultImplementation
+    ).length;
+
+    // Calculate points based on implementation status
+    const points = Math.max(0, 30 - implementationStatus.totalPointsDeduction);
+
+    // Skip LLM grading if:
+    // 1. Student has 0 points from implementation (all functions missing/not implemented) OR
+    // 2. Student has 5 or more default implementations (essentially submitting instructor code) OR
+    // 3. Student has total point deduction of 25 or more (failed most functions)
+    const shouldSkipGrading =
+      points === 0 ||
+      defaultFunctionCount >= 5 ||
+      implementationStatus.totalPointsDeduction >= 25;
+
+    // Use LLM to generate personalized "manual" grading if enabled and student has points
+    if (enableLLM && !shouldSkipGrading) {
+      console.log(`Generating manual grading for ${studentId}'s functions...`);
       try {
         const manualGradingResult = await generateManualGrading(
           studentId,
@@ -80,6 +95,10 @@ export async function processStudent(
         );
         // Don't let grading errors affect the rest of the process
       }
+    } else if (enableLLM) {
+      console.log(
+        `Skipping manual grading for ${studentId} because they have ${points} points, ${defaultFunctionCount} default implementations, or ${implementationStatus.totalPointsDeduction} points deducted.`
+      );
     }
 
     // Note: Default implementations will be marked separately by the similarity checker

@@ -71,6 +71,8 @@ export interface ManualGradingResult {
   feedback: string; // Feedback for improvement
   strengths: string[]; // Key strengths identified
   weaknesses: string[]; // Areas for improvement
+  improvements: string[]; // Specific code improvement suggestions for resubmission
+  implementedFunctions: string[]; // List of functions the LLM has determined are implemented
 }
 
 /**

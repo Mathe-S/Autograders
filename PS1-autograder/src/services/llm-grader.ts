@@ -126,6 +126,8 @@ export async function generateManualGrading(
       feedback: `Error during grading: ${error}`,
       strengths: [],
       weaknesses: ["Could not complete grading"],
+      improvements: [],
+      implementedFunctions: [],
     };
   }
 }
@@ -335,7 +337,7 @@ VALIDATION TASK:
 5. Be particularly generous with the "getHint" function - if there's any reasonable attempt to implement it 
    (even if flawed), consider it implemented.
 
-IMPORTANT:
+IMPORTANT FEEDBACK GUIDELINES:
 1. CAREFULLY REVIEW ALL FUNCTIONS to verify the autograder results.
 2. Use a simple greeting like "Hi [Name]" instead of elaborate introductions.
 3. The computeProgress function is the main focus for detailed feedback, but review all functions.
@@ -343,7 +345,26 @@ IMPORTANT:
 5. Keep feedback concise but personalized.
 6. If a function appears to be implemented but was marked as missing by the autograder, highlight this clearly.
 7. Consider the student's tests (if provided) in your evaluation.
-8. For each weakness identified, provide a clear path to improvement with specific code suggestions.
+8. For each function (especially underperforming ones), provide multiple specific improvement suggestions.
+9. ONLY mention test failures or crashes if they are explicitly shown in the STUDENT TEST RESULTS section.
+   Do not speculate about test errors if none are actually documented in the provided results.
+10. Be factual about the code's state - only comment on issues you can directly verify from the code provided.
+
+FUNCTION IMPLEMENTATION ASSESSMENT:
+After reviewing the student's code, you must provide a list of which functions you believe are actually implemented, 
+regardless of what the autograder reports. Include a function in your list if there is a reasonable attempt to implement it,
+even if it has some flaws or doesn't perfectly handle all edge cases. Be generous in your assessment.
+
+IMPROVEMENT SUGGESTIONS FORMAT:
+For the improvements array, provide detailed, function-specific suggestions. Format each improvement as:
+"[Function Name] - Specific improvement suggestion"
+
+For example:
+- "getHint - Add error handling for empty card fronts"
+- "computeProgress - Improve accuracy calculation by handling zero reviews case"
+- "toBucketSets - Consider using Array.from() with a mapping function for cleaner code"
+
+Provide multiple suggestions for each function that needs improvement.
 
 RESPONSE FORMAT:
 Respond in valid JSON format only, with the following structure:
@@ -353,8 +374,12 @@ Respond in valid JSON format only, with the following structure:
   "feedback": "<your personal, conversational feedback to ${studentName}>",
   "strengths": ["<strength 1>", "<strength 2>", ...],
   "weaknesses": ["<area for improvement 1>", "<area for improvement 2>", ...],
-  "improvements": ["<specific improvement 1>", "<specific improvement 2>", ...]
+  "improvements": ["<function name> - <specific improvement 1>", "<function name> - <specific improvement 2>", ...],
+  "implementedFunctions": ["<function name 1>", "<function name 2>", ...]
 }
+
+The implementedFunctions array should include the names of ALL functions that you believe the student has implemented,
+regardless of what the autograder reported. This will be used to correct any mistakes in the automatic grading.
 `;
 }
 
@@ -401,6 +426,22 @@ async function callGeminiAPI(prompt: string): Promise<any> {
               },
               description: "Areas for improvement in the student code",
             },
+            improvements: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.STRING,
+              },
+              description:
+                "Specific code improvement suggestions for resubmission",
+            },
+            implementedFunctions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.STRING,
+              },
+              description:
+                "List of functions the LLM has determined are implemented by the student",
+            },
           },
           required: [
             "computeProgressScore",
@@ -408,6 +449,8 @@ async function callGeminiAPI(prompt: string): Promise<any> {
             "feedback",
             "strengths",
             "weaknesses",
+            "improvements",
+            "implementedFunctions",
           ],
         },
       },
@@ -428,7 +471,7 @@ async function callGeminiAPI(prompt: string): Promise<any> {
       if (text) {
         try {
           // If it's wrapped in markdown code block, extract the JSON part
-          const jsonRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/;
+          const jsonRegex = /```(?:json)?\s*(\{[\s\\S]*?\})\s*```/;
           const jsonMatch = text.match(jsonRegex);
 
           if (jsonMatch && jsonMatch[1]) {
@@ -449,6 +492,8 @@ async function callGeminiAPI(prompt: string): Promise<any> {
             feedback: "Could not parse grading response",
             strengths: [],
             weaknesses: [],
+            improvements: [],
+            implementedFunctions: [],
           };
         }
       }
@@ -465,6 +510,8 @@ async function callGeminiAPI(prompt: string): Promise<any> {
       feedback: "Could not parse grading response",
       strengths: [],
       weaknesses: [],
+      improvements: [],
+      implementedFunctions: [],
     };
   }
 }
@@ -487,6 +534,8 @@ function parseGradingResponse(response: any): ManualGradingResult {
         feedback: response.feedback,
         strengths: response.strengths || [],
         weaknesses: response.weaknesses || [],
+        improvements: response.improvements || [],
+        implementedFunctions: response.implementedFunctions || [],
       };
     }
 
@@ -499,6 +548,8 @@ function parseGradingResponse(response: any): ManualGradingResult {
       feedback: "Could not parse grading response",
       strengths: [],
       weaknesses: ["Response parsing error"],
+      improvements: [],
+      implementedFunctions: [],
     };
   } catch (error) {
     console.error("Error parsing grading response:", error);
@@ -508,6 +559,8 @@ function parseGradingResponse(response: any): ManualGradingResult {
       feedback: `Error parsing grading response: ${error}`,
       strengths: [],
       weaknesses: ["Response parsing error"],
+      improvements: [],
+      implementedFunctions: [],
     };
   }
 }
