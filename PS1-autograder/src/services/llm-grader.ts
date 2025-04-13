@@ -384,136 +384,196 @@ regardless of what the autograder reported. This will be used to correct any mis
 }
 
 /**
- * Call the Gemini API to grade the solution
+ * Call the Gemini API to grade the solution with retry for rate limits
  */
-async function callGeminiAPI(prompt: string): Promise<any> {
-  try {
-    console.log("Calling Gemini API for personalized grading...");
+async function callGeminiAPI(prompt: string, maxRetries = 3): Promise<any> {
+  let retries = 0;
 
-    // Configure for structured output with JSON schema
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            computeProgressScore: {
-              type: Type.NUMBER,
-              description: "Score for computeProgress function (0-10 points)",
-            },
-            overallScore: {
-              type: Type.NUMBER,
-              description: "Overall score out of 40 points",
-            },
-            feedback: {
-              type: Type.STRING,
-              description:
-                "Personal, conversational feedback as Professor Mate",
-            },
-            strengths: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.STRING,
+  while (retries <= maxRetries) {
+    try {
+      console.log(
+        `Calling Gemini API for personalized grading... (attempt ${
+          retries + 1
+        }/${maxRetries + 1})`
+      );
+
+      // Configure for structured output with JSON schema
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              computeProgressScore: {
+                type: Type.NUMBER,
+                description: "Score for computeProgress function (0-10 points)",
               },
-              description: "Key strengths identified in the student code",
-            },
-            weaknesses: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.STRING,
+              overallScore: {
+                type: Type.NUMBER,
+                description: "Overall score out of 40 points",
               },
-              description: "Areas for improvement in the student code",
-            },
-            improvements: {
-              type: Type.ARRAY,
-              items: {
+              feedback: {
                 type: Type.STRING,
+                description:
+                  "Personal, conversational feedback as Professor Mate",
               },
-              description:
-                "Specific code improvement suggestions for resubmission",
-            },
-            implementedFunctions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.STRING,
+              strengths: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.STRING,
+                },
+                description: "Key strengths identified in the student code",
               },
-              description:
-                "List of functions the LLM has determined are implemented by the student",
+              weaknesses: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.STRING,
+                },
+                description: "Areas for improvement in the student code",
+              },
+              improvements: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.STRING,
+                },
+                description:
+                  "Specific code improvement suggestions for resubmission",
+              },
+              implementedFunctions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.STRING,
+                },
+                description:
+                  "List of functions the LLM has determined are implemented by the student",
+              },
             },
+            required: [
+              "computeProgressScore",
+              "overallScore",
+              "feedback",
+              "strengths",
+              "weaknesses",
+              "improvements",
+              "implementedFunctions",
+            ],
           },
-          required: [
-            "computeProgressScore",
-            "overallScore",
-            "feedback",
-            "strengths",
-            "weaknesses",
-            "improvements",
-            "implementedFunctions",
-          ],
         },
-      },
-    });
+      });
 
-    if (
-      response &&
-      response.candidates &&
-      response.candidates.length > 0 &&
-      response.candidates[0].content &&
-      response.candidates[0].content.parts &&
-      response.candidates[0].content.parts.length > 0
-    ) {
-      console.log("Received response from Gemini API");
-      const text = response.candidates[0].content.parts[0].text;
+      if (
+        response &&
+        response.candidates &&
+        response.candidates.length > 0 &&
+        response.candidates[0].content &&
+        response.candidates[0].content.parts &&
+        response.candidates[0].content.parts.length > 0
+      ) {
+        console.log("Received response from Gemini API");
+        const text = response.candidates[0].content.parts[0].text;
 
-      // Extract JSON if it's wrapped in a code block
-      if (text) {
-        try {
-          // If it's wrapped in markdown code block, extract the JSON part
-          const jsonRegex = /```(?:json)?\s*(\{[\s\\S]*?\})\s*```/;
-          const jsonMatch = text.match(jsonRegex);
+        // Extract JSON if it's wrapped in a code block
+        if (text) {
+          try {
+            // If it's wrapped in markdown code block, extract the JSON part
+            const jsonRegex = /```(?:json)?\s*(\{[\s\\S]*?\})\s*```/;
+            const jsonMatch = text.match(jsonRegex);
 
-          if (jsonMatch && jsonMatch[1]) {
-            // Found JSON inside code block
-            return JSON.parse(jsonMatch[1]);
-          } else {
-            // Try direct parsing
-            return JSON.parse(text);
+            if (jsonMatch && jsonMatch[1]) {
+              // Found JSON inside code block
+              return JSON.parse(jsonMatch[1]);
+            } else {
+              // Try direct parsing
+              return JSON.parse(text);
+            }
+          } catch (parseError) {
+            console.error("Failed to parse JSON from response:", parseError);
+            console.log("Response text:", text);
+
+            // Return a default response if parsing fails
+            return {
+              computeProgressScore: 0,
+              overallScore: 0,
+              feedback: "Could not parse grading response",
+              strengths: [],
+              weaknesses: [],
+              improvements: [],
+              implementedFunctions: [],
+            };
           }
-        } catch (parseError) {
-          console.error("Failed to parse JSON from response:", parseError);
-          console.log("Response text:", text);
-
-          // Return a default response if parsing fails
-          return {
-            computeProgressScore: 0,
-            overallScore: 0,
-            feedback: "Could not parse grading response",
-            strengths: [],
-            weaknesses: [],
-            improvements: [],
-            implementedFunctions: [],
-          };
         }
       }
-    }
 
-    console.error("Unexpected response format from Gemini API");
-    throw new Error("Invalid response format from Gemini API");
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    // Return a fallback response instead of throwing
-    return {
-      computeProgressScore: 0,
-      overallScore: 0,
-      feedback: "Could not parse grading response",
-      strengths: [],
-      weaknesses: [],
-      improvements: [],
-      implementedFunctions: [],
-    };
+      console.error("Unexpected response format from Gemini API");
+      throw new Error("Invalid response format from Gemini API");
+    } catch (error: any) {
+      console.error(
+        `Error calling Gemini API (attempt ${retries + 1}/${maxRetries + 1}):`,
+        error
+      );
+
+      // Check if it's a rate limit error (429)
+      if (error?.message?.includes("429") || error?.status === 429) {
+        retries++;
+
+        // Extract retry delay from error if available
+        let retryDelay = 60000; // Default to 30 seconds
+        try {
+          // Try to extract the retryDelay from the error message
+          const retryDelayMatch = error.message.match(/retryDelay":"(\d+)s"/);
+          if (retryDelayMatch && retryDelayMatch[1]) {
+            retryDelay = parseInt(retryDelayMatch[1]) * 1000; // Convert seconds to milliseconds
+            console.log(
+              `Rate limit exceeded. Will retry in ${
+                retryDelay / 1000
+              } seconds as specified by API.`
+            );
+          } else {
+            // If retryDelay not found, use exponential backoff
+            retryDelay = Math.min(30000 * Math.pow(2, retries - 1), 120000); // Max 2 minutes
+            console.log(
+              `Rate limit exceeded. Will retry in ${
+                retryDelay / 1000
+              } seconds using exponential backoff.`
+            );
+          }
+        } catch (parseError) {
+          console.error("Error parsing retry delay:", parseError);
+        }
+
+        if (retries <= maxRetries) {
+          console.log(`Waiting ${retryDelay / 1000} seconds before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          continue; // Try again
+        }
+      }
+
+      // If we've exhausted all retries or it's not a rate limit error, return fallback
+      return {
+        computeProgressScore: 0,
+        overallScore: 0,
+        feedback:
+          "Could not generate grading response due to API limits or other errors",
+        strengths: [],
+        weaknesses: [],
+        improvements: [],
+        implementedFunctions: [],
+      };
+    }
   }
+
+  // If we've exhausted all retries
+  return {
+    computeProgressScore: 0,
+    overallScore: 0,
+    feedback: "Exceeded maximum retries for API calls",
+    strengths: [],
+    weaknesses: [],
+    improvements: [],
+    implementedFunctions: [],
+  };
 }
 
 /**

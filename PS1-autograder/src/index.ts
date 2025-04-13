@@ -17,8 +17,8 @@ import {
   saveGradingReport,
 } from "./reporters/report-generator";
 
-// const SUBMISSIONS_DIR = path.join(process.cwd(), "Submissions_auto");
-const SUBMISSIONS_DIR = path.join(process.cwd(), "submissions");
+const SUBMISSIONS_DIR = path.join(process.cwd(), "Submissions_auto");
+// const SUBMISSIONS_DIR = path.join(process.cwd(), "submissions");
 
 async function openHTML(filename?: string): Promise<void> {
   if (!filename) {
