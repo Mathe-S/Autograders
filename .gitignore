@@ -1,6 +1,7 @@
 **/node_modules
 **/grading_report.json
 **/Submissions_auto
+**/Submissions_auto_old
 **/assignment_submissions.csv
 **/failed_submissions_log.txt
 **/submissions/

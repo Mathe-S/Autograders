@@ -8,6 +8,7 @@
     "build": "tsc",
     "autograde": "npm run build && node dist/index.js ",
     "autograde-llm": "npm run build && node dist/index.js --manual",
+    "regrade": "npm run build && node dist/index.js --final-grade",
     "test": "mocha -r ts-node/register **/*Test.ts",
     "dev": "ts-node src/index.ts"
   },

@@ -16,6 +16,7 @@ import {
   printGradingSummary,
   saveGradingReport,
 } from "./reporters/report-generator";
+import { runFinalGrading } from "./final-grader";
 
 const SUBMISSIONS_DIR = path.join(process.cwd(), "Submissions_auto");
 // const SUBMISSIONS_DIR = path.join(process.cwd(), "submissions");
@@ -344,6 +345,12 @@ if (require.main === module) {
     const threshold = defineSimilarityThreshold(args);
     runSimilarityAnalysis(threshold).catch((error) => {
       console.error("Error running similarity analysis:", error);
+      process.exit(1);
+    });
+  } else if (args.includes("--final-grade")) {
+    console.log("Final grading mode selected.");
+    runFinalGrading().catch((error) => {
+      console.error("Error running final grading:", error);
       process.exit(1);
     });
   } else {
