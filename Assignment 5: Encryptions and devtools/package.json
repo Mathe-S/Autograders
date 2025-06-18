@@ -1,0 +1,28 @@
+{
+  "name": "assignment5-completion-verifier",
+  "version": "1.0.0",
+  "description": "Script to verify completion numbers for Assignment 5: Encryptions and devtools",
+  "main": "verify-completion-numbers.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node verify-completion-numbers.js",
+    "dev": "ts-node verify-completion-numbers.ts",
+    "verify": "npm run build && npm run start",
+    "test": "ts-node test-completion-numbers.ts"
+  },
+  "dependencies": {
+    "csv-parser": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "keywords": [
+    "grading",
+    "verification",
+    "completion-numbers"
+  ],
+  "author": "Autograder",
+  "license": "MIT"
+}
