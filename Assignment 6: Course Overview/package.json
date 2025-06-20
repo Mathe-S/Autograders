@@ -1,0 +1,28 @@
+{
+  "name": "assignment6-progress-key-verifier",
+  "version": "1.0.0",
+  "description": "Script to verify progress keys for Assignment 6: Course Overview",
+  "main": "verify-progress-keys.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node verify-progress-keys.js",
+    "dev": "ts-node verify-progress-keys.ts",
+    "verify": "npm run build && npm run start",
+    "test": "ts-node test-progress-keys.ts"
+  },
+  "dependencies": {
+    "csv-parser": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "keywords": [
+    "grading",
+    "verification",
+    "progress-keys"
+  ],
+  "author": "Autograder",
+  "license": "MIT"
+}
